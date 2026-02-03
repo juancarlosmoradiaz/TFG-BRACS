@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.venv/
+.venv*/
+.env
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+
+# Editors
+.vscode/
+.idea/
+
+# Data / artifacts 
+data/
+datasets/
+BRACS*.xlsx
+*.svs
+*.tif
+*.ndpi
+
+# Generated patches / features
+**/*_patches*/
+**/*_mask*/
+**/*_features*/
+*.hdf5
+*.h5
+*.pkl
+*.npy
+*.parquet
+
+# Outputs / logs
+outputs/
+results/
+weights/
+mlruns/
+*.log
+*.png
+*.jpg
+*.jpeg
+*.xlsx
