@@ -12,16 +12,15 @@ from bracs.utils import paths
 from bracs.utils.mlflow_utils import start_run, log_common_tags
 
 
+# CONVIERTE LISTA/ARRAY A ETIQUETAS 1D
 def _to_1d_labels(arr):
-    """Convierte lista/array de etiquetas a vector 1D de ints."""
     arr = np.asarray(arr)
     if arr.ndim > 1:
         return arr.argmax(axis=1)
     return arr.astype(int)
 
-
+# FUNCION PARA CREAR LA FIGURA CON LA MATRIZ DE CONFUSIÓN NORMALIZADA
 def plot_confusion_matrix(cm, class_names):
-    """Devuelve una figura de matplotlib con la matriz de confusión normalizada."""
     fig, ax = plt.subplots(figsize=(5, 5))
     cm_norm = cm.astype("float") / cm.sum(axis=1, keepdims=True)
     im = ax.imshow(cm_norm, interpolation="nearest")
@@ -87,8 +86,7 @@ def main():
 
     args = parser.parse_args()
 
-    # 1) Localizar carpeta de resultados (dentro de outputs)
-        # 1) Localizar carpeta de resultados (probamos varias rutas posibles)
+    # Localizamos la carpeta de resultados (dentro de outputs, probamos varias rutas)
     candidates = [
         paths.outputs_root() / "results" / args.results_folder_name,
         paths.project_root() / "results" / args.results_folder_name,
@@ -107,7 +105,7 @@ def main():
             + "\n".join(str(c) for c in candidates)
         )
 
-    # 2) Cargar el último results_Epoch*.pkl
+    # Cargamos el último results_Epoch*.pkl, que debería tener todos los datos del último entrenamiento
     pkls = sorted(results_dir.glob("results_Epoch*.pkl"))
     if not pkls:
         raise FileNotFoundError(f"No se ha encontrado ningún results_Epoch*.pkl en {results_dir}")
@@ -118,7 +116,7 @@ def main():
     with open(pkl_path, "rb") as f:
         results = pickle.load(f)
 
-    # 3) Extraer cosas importantes
+    # Extraemos las cosas más importantes
     best_acc = float(results.get("best_acc", np.nan))
     best_auc = float(results.get("best_auc", np.nan))
     best_epoch = int(results.get("best_epoch", -1))
@@ -137,7 +135,7 @@ def main():
         if y_proba.ndim == 1:
             y_proba = None
 
-    # 4) Métricas de sklearn
+    # Métricas de sklearn
     cm = confusion_matrix(y_true, y_pred)
     print("Confusion matrix:\n", cm)
 
@@ -159,10 +157,9 @@ def main():
         except Exception as e:
             print("No se pudo calcular AUC multi-clase:", e)
 
-    # 5) Log en MLflow
+    # Log en MLflow
     run_name = f"roi_{args.patch_size}_{args.n_clases}cls_{args.results_folder_name}"
     with start_run(run_name=run_name):
-        # Tags comunes (proyecto, host, etc.)
         log_common_tags()
 
         # Hiperparámetros
@@ -228,7 +225,7 @@ def main():
             f.write(cls_report)
         mlflow.log_artifact(str(report_path), artifact_path="artifacts")
 
-        # Opcional: guardar también el pickle original como artifact
+        # Guardar también el pickle original como artifact
         mlflow.log_artifact(str(pkl_path), artifact_path="artifacts")
 
     print("\n✅ Resultados logueados en MLflow.")

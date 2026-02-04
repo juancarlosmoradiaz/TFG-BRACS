@@ -14,7 +14,7 @@ def set_experiment(experiment_name: str = "tfg-bracs") -> None:
     mlflow.set_experiment(experiment_name)
 
 def start_run(run_name: str | None = None, tags: dict | None = None):
-    # Context manager: with start_run(...):
+    # Context manager: with start_run:
     set_experiment()
     return mlflow.start_run(run_name=run_name, tags=tags)
 
