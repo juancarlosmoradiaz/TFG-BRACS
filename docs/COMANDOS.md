@@ -33,6 +33,13 @@ Mientras esta permanece abierta, abrimos otra terminal en nuestro local:
 ```bash
 ssh -L 5000:localhost:5000 bracs-ugr
 ```
+
+usuario: usuario_tfg
+contraseña: PCI1-2..TFG2026
+
+IP: 150.214.203.144
+Puerto: 2022
+
 Mientras esta sesion este abierta, el puerto 5000 del servidor quedará disponible en el PC como localhost:5000.
 
 
