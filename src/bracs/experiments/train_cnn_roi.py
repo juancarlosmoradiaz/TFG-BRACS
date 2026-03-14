@@ -700,7 +700,7 @@ def main() -> None:
             if is_better:
                 best_val_f1_macro = current_val_f1_macro
                 best_val_acc = current_val_acc
-                best_epoch = epoch
+                best_epoch = epoch_idx
                 best_model_state = {k: v.cpu() for k, v in model.state_dict().items()}
 
         total_training_time = time.time() - global_start
