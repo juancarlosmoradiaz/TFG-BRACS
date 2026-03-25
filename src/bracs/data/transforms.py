@@ -41,9 +41,12 @@ def transformaciones_roi(tam_imagen:int = 512,
             "test": transforms.Compose([...])    
     """
     # Transformación base: to tensor
-    # NOTA: Nuestros parches ya estan en 512x512, así que no necesitamos un resize. 
-    #  Si quisieramos redimensionar porque tenemos otras dimensiones, podríamos añadir transforms.Resize(tam_imagen) aquí.
-    operaciones_base = [transforms.ToTensor()]
+    # AÑDIDO RESIZE PARA VITS, YA QUE ESTOS MODELOS ESPERAN 512x512
+
+    operaciones_base = [
+        transforms.Resize((tam_imagen, tam_imagen)),
+        transforms.ToTensor(),
+    ]    
     
     if tipo_normalizacion == "imagenet":
         media, std = imagenet_estadisticas().values()

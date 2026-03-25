@@ -1,5 +1,5 @@
 # ---------------------------------------------
-# ENTRENAMIENTO DE CNNs SOBRE PARCHES ROI 
+# ENTRENAMIENTO DE VISION TRANSFORMERS SOBRE PARCHES ROI (BRACS)
 # ---------------------------------------------
 
 from __future__ import annotations
@@ -13,12 +13,12 @@ from typing import Dict, List, Tuple
 import matplotlib.pyplot as plt
 import mlflow
 import numpy as np
+import timm
 import torch
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, f1_score
 from torch import nn
 from torch.optim import SGD, Adam, AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR, StepLR
-from torchvision import models
 from tqdm.auto import tqdm
 
 from bracs.data.dataloaders import get_roi_train_val_dataloaders
@@ -30,50 +30,27 @@ from bracs.utils.seed import set_seed
 # =========================================================
 # CONSTRUCCIÓN DEL MODELO
 # =========================================================
-def build_cnn(model_name: str, n_clases: int, pretrained: bool = True) -> nn.Module:
+def build_vit(model_name: str, n_clases: int, pretrained: bool = True) -> nn.Module:
     """
-    Construimos una CNN y adaptamos su última capa al número de clases.
-
-    Modelos soportados:
-        - resnet18
-        - resnet50
-        - densenet121
+    Construimos un Vision Transformer con timm y adaptamos
+    la cabeza de clasificación al número de clases.
 
     Args:
         model_name:
-            Nombre del backbone a utilizar.
+            Nombre del modelo en timm.
         n_clases:
-            Número de clases del problema (3 o 7).
+            Número de clases del problema.
         pretrained:
-            Si es True, cargamos pesos preentrenados en ImageNet.
+            Si es True, cargamos pesos preentrenados.
 
     Returns:
-        model:
-            Modelo listo para entrenar.
+        Modelo listo para entrenar.
     """
-    model_name = model_name.lower()
-
-    if model_name == "resnet18":
-        weights = models.ResNet18_Weights.DEFAULT if pretrained else None
-        model = models.resnet18(weights=weights)
-        in_features = model.fc.in_features
-        model.fc = nn.Linear(in_features, n_clases)
-
-    elif model_name == "resnet50":
-        weights = models.ResNet50_Weights.DEFAULT if pretrained else None
-        model = models.resnet50(weights=weights)
-        in_features = model.fc.in_features
-        model.fc = nn.Linear(in_features, n_clases)
-
-    elif model_name == "densenet121":
-        weights = models.DenseNet121_Weights.DEFAULT if pretrained else None
-        model = models.densenet121(weights=weights)
-        in_features = model.classifier.in_features
-        model.classifier = nn.Linear(in_features, n_clases)
-
-    else:
-        raise ValueError(f"Modelo CNN no soportado: {model_name}")
-
+    model = timm.create_model(
+        model_name,
+        pretrained=pretrained,
+        num_classes=n_clases,
+    )
     return model
 
 
@@ -82,7 +59,7 @@ def build_cnn(model_name: str, n_clases: int, pretrained: bool = True) -> nn.Mod
 # =========================================================
 def build_optimizer(params, args: argparse.Namespace):
     """
-    Construimos el optimizador a partir de los argumentos del experimento.
+    Construimos el optimizador a partir de la configuración del experimento.
     """
     opt_name = args.optimizer.lower()
 
@@ -113,7 +90,7 @@ def build_optimizer(params, args: argparse.Namespace):
 
 def build_scheduler(optimizer, args: argparse.Namespace):
     """
-    Construimos el scheduler de learning rate.
+    Construimos el scheduler del learning rate.
     """
     sched_name = args.scheduler.lower()
 
@@ -137,7 +114,7 @@ def build_scheduler(optimizer, args: argparse.Namespace):
 
 
 # =========================================================
-# FUNCIONES ADICIONALES PARA LAS MÉTRICAS
+# MÉTRICAS
 # =========================================================
 def compute_epoch_metrics_from_arrays(
     y_true: np.ndarray,
@@ -202,11 +179,7 @@ def train_one_epoch(
     num_epochs: int,
 ) -> Dict[str, float]:
     """
-    Entrenamos una época y devolvemos:
-        - train_loss
-        - train_acc
-        - train_f1_macro
-        - train_f1_weighted
+    Entrenamos una época completa y devolvemos métricas de train.
     """
     model.train()
 
@@ -242,7 +215,6 @@ def train_one_epoch(
         all_labels.append(labels.detach().cpu().numpy())
         all_preds.append(preds.detach().cpu().numpy())
 
-        # Métricas parciales mostradas durante la época en tiempo real
         y_true_partial = np.concatenate(all_labels, axis=0)
         y_pred_partial = np.concatenate(all_preds, axis=0)
         partial_metrics = compute_epoch_metrics_from_arrays(y_true_partial, y_pred_partial)
@@ -276,11 +248,7 @@ def evaluate_one_epoch(
     num_epochs: int,
 ) -> Dict[str, float]:
     """
-    Evaluamos una época completa sobre validación y devolvemos:
-        - val_loss
-        - val_acc
-        - val_f1_macro
-        - val_f1_weighted
+    Evaluamos una época completa sobre validación.
     """
     model.eval()
 
@@ -335,7 +303,7 @@ def evaluate_one_epoch(
 
 
 # =========================================================
-# VISUALIZACIÓN Y GUARDADO DE MATRICES DE CONFUSIÓN
+# MATRICES DE CONFUSIÓN
 # =========================================================
 def save_confusion_matrix_figure(
     cm: np.ndarray,
@@ -344,7 +312,7 @@ def save_confusion_matrix_figure(
     title: str,
 ) -> None:
     """
-    Guardamos una imagen PNG de la matriz de confusión.
+    Guardamos una figura PNG de la matriz de confusión.
     """
     fig, ax = plt.subplots(figsize=(8, 6))
     im = ax.imshow(cm, interpolation="nearest", cmap="Blues")
@@ -381,55 +349,38 @@ def save_confusion_matrix_figure(
 
 
 # =========================================================
-# ARGUMENTOS EN LA LÍNEA DE COMANDOS
+# ARGUMENTOS
 # =========================================================
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Entrenamiento de CNNs sobre patches RoI de BRACS."
+        description="Entrenamiento de Vision Transformers sobre patches RoI de BRACS."
     )
 
     # Dataset / tarea
-    parser.add_argument("--n_clases", type=int, default=7, help="Número de clases (3 o 7).")
-    parser.add_argument(
-        "--dataset_name",
-        type=str,
-        default=None,
-        help="Nombre del .pkl dentro de data/datasets/roi.",
-    )
+    parser.add_argument("--n_clases", type=int, default=7)
+    parser.add_argument("--dataset_name", type=str, default=None)
 
     # Modelo
     parser.add_argument(
         "--model",
         type=str,
-        default="resnet18",
-        choices=["resnet18", "resnet50", "densenet121"],
-        help="Modelo CNN a entrenar.",
+        default="vit_base_patch16_224",
+        choices=[
+            "vit_base_patch16_224",
+            "deit_small_patch16_224",
+            "swin_tiny_patch4_window7_224",
+        ],
     )
-    parser.add_argument(
-        "--pretrained",
-        type=int,
-        default=1,
-        help="Usar pesos preentrenados en ImageNet (1) o no (0).",
-    )
+    parser.add_argument("--pretrained", type=int, default=1)
 
-    # Semilla
-    parser.add_argument(
-        "--seed",
-        type=int,
-        required=True,
-        help="Semilla aleatoria del experimento.",
-    )
+    # Seed
+    parser.add_argument("--seed", type=int, required=True)
 
     # Entrenamiento
-    parser.add_argument("--epochs", type=int, default=20, help="Número de épocas.")
-    parser.add_argument("--batch_size", type=int, default=32, help="Tamaño de batch.")
-    parser.add_argument("--lr", type=float, default=3e-4, help="Learning rate.")
-    parser.add_argument(
-        "--weight_decay",
-        type=float,
-        default=1e-4,
-        help="Weight decay del optimizador.",
-    )
+    parser.add_argument("--epochs", type=int, default=10)
+    parser.add_argument("--batch_size", type=int, default=8)
+    parser.add_argument("--lr", type=float, default=3e-4)
+    parser.add_argument("--weight_decay", type=float, default=1e-4)
 
     # Optimizador
     parser.add_argument(
@@ -437,14 +388,8 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default="adamw",
         choices=["adamw", "adam", "sgd"],
-        help="Optimizador.",
     )
-    parser.add_argument(
-        "--momentum",
-        type=float,
-        default=0.9,
-        help="Momentum para SGD.",
-    )
+    parser.add_argument("--momentum", type=float, default=0.9)
 
     # Scheduler
     parser.add_argument(
@@ -452,64 +397,39 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default="cosine",
         choices=["none", "cosine", "step"],
-        help="Scheduler del learning rate.",
     )
-    parser.add_argument(
-        "--scheduler_step_size",
-        type=int,
-        default=10,
-        help="Step size de StepLR.",
-    )
-    parser.add_argument(
-        "--scheduler_gamma",
-        type=float,
-        default=0.1,
-        help="Gamma de StepLR.",
-    )
+    parser.add_argument("--scheduler_step_size", type=int, default=10)
+    parser.add_argument("--scheduler_gamma", type=float, default=0.1)
 
-    # Datos / transformaciones
-    parser.add_argument("--tam_imagen", type=int, default=512, help="Tamaño de entrada.")
+    # Datos / transforms
+    parser.add_argument("--tam_imagen", type=int, default=224)
     parser.add_argument(
         "--nivel_augmentation",
         type=str,
         default="none",
         choices=["none", "light", "heavy"],
-        help="Nivel de augmentation. En baseline será none.",
     )
     parser.add_argument(
         "--tipo_normalizacion",
         type=str,
         default="none",
         choices=["none", "imagenet"],
-        help="Tipo de normalización. En baseline será none.",
     )
-    parser.add_argument(
-        "--num_workers",
-        type=int,
-        default=4,
-        help="Workers del DataLoader.",
-    )
+    parser.add_argument("--num_workers", type=int, default=4)
 
     # MLflow
     parser.add_argument(
         "--experiment_name",
         type=str,
-        default="roi-cnn-7cls-baseline",
-        help="Nombre del experimento en MLflow.",
+        default="roi-vit-7cls-baseline",
     )
-    parser.add_argument(
-        "--run_name",
-        type=str,
-        default=None,
-        help="Nombre del run en MLflow.",
-    )
+    parser.add_argument("--run_name", type=str, default=None)
 
     return parser.parse_args()
 
 
 
 def main() -> None:
-    # Parseo y preparación inicial
     args = parse_args()
     paths.ensure_dirs()
     set_seed(args.seed)
@@ -518,7 +438,6 @@ def main() -> None:
     print(f"[INFO] Usando dispositivo: {device}")
     print(f"[INFO] Seed del experimento: {args.seed}")
 
-    # DataLoaders
     print("[INFO] Construyendo DataLoaders de train/val ...")
     train_loader, val_loader = get_roi_train_val_dataloaders(
         n_clases=args.n_clases,
@@ -530,9 +449,8 @@ def main() -> None:
         dataset_name=args.dataset_name,
     )
 
-    # Modelo, loss, optimizer y scheduler
-    print(f"[INFO] Construyendo modelo {args.model} ...")
-    model = build_cnn(
+    print(f"[INFO] Construyendo modelo ViT {args.model} ...")
+    model = build_vit(
         model_name=args.model,
         n_clases=args.n_clases,
         pretrained=bool(args.pretrained),
@@ -543,7 +461,6 @@ def main() -> None:
     optimizer = build_optimizer(model.parameters(), args)
     scheduler = build_scheduler(optimizer, args)
 
-    # Configuración de MLflow
     tracking_uri = f"file:{paths.mlflow_root()}"
     mlflow.set_tracking_uri(tracking_uri)
     mlflow.set_experiment(args.experiment_name)
@@ -551,17 +468,15 @@ def main() -> None:
     print(f"[INFO] MLflow tracking URI: {tracking_uri}")
     print(f"[INFO] MLflow experiment: {args.experiment_name}")
 
-    # Run de MLflow
     with mlflow.start_run(run_name=args.run_name):
-        mlflow.set_tag("family", "cnn")
+        mlflow.set_tag("family", "vit")
         mlflow.set_tag("phase", "baseline")
         mlflow.set_tag("task", f"{args.n_clases}cls")
         mlflow.set_tag("seed", args.seed)
 
-        # Hiperparámetros / configuración
         mlflow.log_params(
             {
-                "family": "cnn",
+                "family": "vit",
                 "model": args.model,
                 "n_clases": args.n_clases,
                 "dataset_name": args.dataset_name or "default",
@@ -583,14 +498,10 @@ def main() -> None:
             }
         )
 
-        # Bucle principal de entrenamiento
         best_val_acc = -1.0
         best_val_f1_macro = -1.0
         best_epoch = -1
         best_model_state = None
-
-        train_history = []
-        val_history = []
 
         global_start = time.time()
 
@@ -600,7 +511,6 @@ def main() -> None:
 
             epoch_start = time.time()
 
-            # Train
             train_metrics = train_one_epoch(
                 model=model,
                 dataloader=train_loader,
@@ -611,7 +521,6 @@ def main() -> None:
                 num_epochs=args.epochs,
             )
 
-            # Val 
             val_metrics = evaluate_one_epoch(
                 model=model,
                 dataloader=val_loader,
@@ -621,7 +530,6 @@ def main() -> None:
                 num_epochs=args.epochs,
             )
 
-            # Scheduler 
             if scheduler is not None:
                 scheduler.step()
 
@@ -637,7 +545,6 @@ def main() -> None:
                 f"time={epoch_time:.1f}s"
             )
 
-            # Log por época en MLflow
             mlflow.log_metrics(
                 {
                     "train_loss": train_metrics["loss"],
@@ -653,11 +560,6 @@ def main() -> None:
                 step=epoch,
             )
 
-            train_history.append(train_metrics)
-            val_history.append(val_metrics)
-
-            # Guardado del mejor modelo 
-            # Priorizamos F1 macro. Si empata, usamos accuracy
             current_val_f1_macro = val_metrics["f1_macro"]
             current_val_acc = val_metrics["acc"]
 
@@ -687,9 +589,8 @@ def main() -> None:
         mlflow.log_metric("total_training_time_sec", total_training_time)
         mlflow.log_param("best_epoch", best_epoch)
 
-        # Guardado del mejor checkpoint
         if best_model_state is not None:
-            models_root = paths.models_root() / "cnn_roi"
+            models_root = paths.models_root() / "vit_roi"
             models_root.mkdir(parents=True, exist_ok=True)
 
             model_filename = (
@@ -701,7 +602,6 @@ def main() -> None:
             print(f"[INFO] Mejor modelo guardado en: {model_path}")
             mlflow.log_artifact(str(model_path))
 
-        # Evaluación final con best model
         if best_model_state is not None:
             print("[INFO] Generando matrices de confusión y classification reports ...")
 
@@ -711,7 +611,6 @@ def main() -> None:
 
             class_names = get_class_names(args.n_clases)
 
-            # TRAIN 
             y_true_train, y_pred_train = collect_preds_and_labels(
                 model=model,
                 dataloader=train_loader,
@@ -730,7 +629,6 @@ def main() -> None:
                 labels=list(range(args.n_clases)),
             )
 
-            # VAL 
             y_true_val, y_pred_val = collect_preds_and_labels(
                 model=model,
                 dataloader=val_loader,
@@ -749,13 +647,11 @@ def main() -> None:
                 labels=list(range(args.n_clases)),
             )
 
-            # Guardado en disco
-            figures_dir = paths.figures_root() / "cnn_roi"
-            results_dir = paths.results_root() / "cnn_roi"
+            figures_dir = paths.figures_root() / "vit_roi"
+            results_dir = paths.results_root() / "vit_roi"
             figures_dir.mkdir(parents=True, exist_ok=True)
             results_dir.mkdir(parents=True, exist_ok=True)
 
-            # Matrices de confusión train y val
             cm_train_png = figures_dir / f"cm_train_{args.model}_{args.n_clases}cls_seed{args.seed}.png"
             cm_val_png = figures_dir / f"cm_val_{args.model}_{args.n_clases}cls_seed{args.seed}.png"
 
@@ -772,13 +668,11 @@ def main() -> None:
                 title=f"Val confusion matrix - {args.model} - seed {args.seed}",
             )
 
-            # CSVs de matrices
             cm_train_csv = results_dir / f"cm_train_{args.model}_{args.n_clases}cls_seed{args.seed}.csv"
             cm_val_csv = results_dir / f"cm_val_{args.model}_{args.n_clases}cls_seed{args.seed}.csv"
             np.savetxt(cm_train_csv, train_cm, fmt="%d", delimiter=",")
             np.savetxt(cm_val_csv, val_cm, fmt="%d", delimiter=",")
 
-            # Reports JSON
             train_report_json = results_dir / f"report_train_{args.model}_{args.n_clases}cls_seed{args.seed}.json"
             val_report_json = results_dir / f"report_val_{args.model}_{args.n_clases}cls_seed{args.seed}.json"
 
@@ -787,7 +681,6 @@ def main() -> None:
             with open(val_report_json, "w") as f:
                 json.dump(val_report, f, indent=2)
 
-            # Log de artifacts en MLflow
             for artifact_path in [
                 cm_train_png,
                 cm_val_png,
@@ -798,7 +691,6 @@ def main() -> None:
             ]:
                 mlflow.log_artifact(str(artifact_path))
 
-            # Log extra de métricas finales
             mlflow.log_metric("train_f1_macro_final", float(train_report["macro avg"]["f1-score"]))
             mlflow.log_metric("train_f1_weighted_final", float(train_report["weighted avg"]["f1-score"]))
             mlflow.log_metric("val_f1_macro_final", float(val_report["macro avg"]["f1-score"]))
