@@ -58,34 +58,16 @@ def build_vit(model_name: str, n_clases: int, pretrained: bool = True) -> nn.Mod
 # OPTIMIZADOR Y SCHEDULER
 # =========================================================
 def build_optimizer(params, args: argparse.Namespace):
-    """
-    Construimos el optimizador a partir de la configuración del experimento.
-    """
     opt_name = args.optimizer.lower()
 
     if opt_name == "adamw":
-        optimizer = AdamW(
-            params,
-            lr=args.lr,
-            weight_decay=args.weight_decay,
-        )
+        return AdamW(params, lr=args.lr, weight_decay=args.weight_decay)
     elif opt_name == "adam":
-        optimizer = Adam(
-            params,
-            lr=args.lr,
-            weight_decay=args.weight_decay,
-        )
+        return Adam(params, lr=args.lr, weight_decay=args.weight_decay)
     elif opt_name == "sgd":
-        optimizer = SGD(
-            params,
-            lr=args.lr,
-            momentum=args.momentum,
-            weight_decay=args.weight_decay,
-        )
+        return SGD(params, lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
     else:
         raise ValueError(f"Optimizador no soportado: {args.optimizer}")
-
-    return optimizer
 
 
 def build_scheduler(optimizer, args: argparse.Namespace):
@@ -179,7 +161,11 @@ def train_one_epoch(
     num_epochs: int,
 ) -> Dict[str, float]:
     """
-    Entrenamos una época completa y devolvemos métricas de train.
+    Entrenamos una época y devolvemos:
+        - train_loss
+        - train_acc
+        - train_f1_macro
+        - train_f1_weighted
     """
     model.train()
 
@@ -189,42 +175,49 @@ def train_one_epoch(
     all_labels: List[np.ndarray] = []
     all_preds: List[np.ndarray] = []
 
-    train_iter = tqdm(
-        dataloader,
-        desc=f"Train epoch {epoch_idx}/{num_epochs}",
-        leave=False,
-    )
+    train_iter = tqdm(dataloader, desc=f"Train epoch {epoch_idx}/{num_epochs}", leave=False)
 
     for imgs, labels, _paths in train_iter:
         imgs = imgs.to(device)
         labels = labels.to(device)
 
+        # Pone a 0 los gradientes de todos los parámetros del modelo
         optimizer.zero_grad()
 
+        # Hacemos una pasada hacia adelante:
+        #   El modelo mira la imagen, da una respuesta (logits) y luego se le dice lo equivocado que estaba
         logits = model(imgs)
         loss = criterion(logits, labels)
 
+        # Retropropagación: calcula cuánto contribuyó cada parámetro al error
         loss.backward()
+        # Ajusta los parámetros del modelo para reducir el error
         optimizer.step()
 
+        # Obtenemos las predicciones (la clase con mayor probabilidad para cada imagen)
         preds = torch.argmax(logits, dim=1)
 
+        # Acumulamos la pérdida y el número de muestras
         running_loss += loss.item() * imgs.size(0)
         total_samples += imgs.size(0)
 
+        # Guardamos las etiquetas reales y las predicciones en arrays de numpy en la CPU
         all_labels.append(labels.detach().cpu().numpy())
         all_preds.append(preds.detach().cpu().numpy())
 
+        # Calculamos las métricas parciales (para ir viendo dinámicamente cómo va el entrenamiento)
         y_true_partial = np.concatenate(all_labels, axis=0)
         y_pred_partial = np.concatenate(all_preds, axis=0)
         partial_metrics = compute_epoch_metrics_from_arrays(y_true_partial, y_pred_partial)
 
+        # Actualizamos la barra de tqdm 
         train_iter.set_postfix(
             loss=f"{running_loss / total_samples:.4f}",
             acc=f"{partial_metrics['acc']:.3f}",
             f1m=f"{partial_metrics['f1_macro']:.3f}",
         )
 
+    # Calculamos la pérdida y las métricas finales de la época
     epoch_loss = running_loss / total_samples
     y_true = np.concatenate(all_labels, axis=0)
     y_pred = np.concatenate(all_preds, axis=0)
@@ -248,7 +241,7 @@ def evaluate_one_epoch(
     num_epochs: int,
 ) -> Dict[str, float]:
     """
-    Evaluamos una época completa sobre validación.
+    Evaluamos una época completa sobre validación. Mismo funcionamiento que train_one_epoch pero sin retropropagación.
     """
     model.eval()
 

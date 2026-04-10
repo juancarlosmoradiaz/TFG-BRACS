@@ -10,9 +10,9 @@
 #             "test":  {...},
 #         }
 #     }
-# - Podemos generar:
-#     Un dataset de 7 clases
-#     Un dataset de 3 clases
+# - Podemos generar un dataset de:
+#     - 7 clases
+#     - 3 clases
 # Guardamos el resultado tanto en .pkl como en .npy
 # ---------------------------------------------
 

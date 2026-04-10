@@ -1,6 +1,8 @@
 # ---------------------------------------------
-# ENTRENAMIENTO DE CNNs SOBRE PARCHES ROI 
+# ENTRENAMIENTO DE MODELOS FUNDACIONALES SOBRE PARCHES ROI (BRACS)
 # ---------------------------------------------
+#   - backbone congelado
+#   - cabeza lineal entrenable
 
 from __future__ import annotations
 
@@ -13,13 +15,15 @@ from typing import Dict, List, Tuple
 import matplotlib.pyplot as plt
 import mlflow
 import numpy as np
+import timm
 import torch
+from timm.layers import SwiGLUPacked
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, f1_score
 from torch import nn
 from torch.optim import SGD, Adam, AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR, StepLR
-from torchvision import models
 from tqdm.auto import tqdm
+from transformers import ViTModel
 
 from bracs.data.dataloaders import get_roi_train_val_dataloaders
 from bracs.data.roi_dataset import get_class_names
@@ -28,161 +32,237 @@ from bracs.utils.seed import set_seed
 
 
 # =========================================================
-# CONSTRUCCIÓN DEL MODELO
+# BACKBONES FUNDACIONALES
 # =========================================================
-def build_cnn(model_name: str, n_clases: int, pretrained: bool = True) -> nn.Module:
+class PhikonBackbone(nn.Module):
     """
-    Construimos una CNN y adaptamos su última capa al número de clases.
+    Wrapper para usar Phikon como extractor de características.
 
-    Modelos soportados:
-        - resnet18
-        - resnet50
-        - densenet121
+    Usamos el token CLS de la última capa oculta como embedding global.
+    """
 
-    Args:
-        model_name:
-            Nombre del backbone a utilizar.
-        n_clases:
-            Número de clases del problema (3 o 7).
-        pretrained:
-            Si es True, cargamos pesos preentrenados en ImageNet.
+    def __init__(self) -> None:
+        super().__init__()
+        self.model = ViTModel.from_pretrained("owkin/phikon")
+        self.out_dim = self.model.config.hidden_size
 
-    Returns:
-        model:
-            Modelo listo para entrenar.
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        outputs = self.model(pixel_values=x)
+        cls_token = outputs.last_hidden_state[:, 0]  # [B, hidden]
+        return cls_token
+
+
+class TimmHFBackbone(nn.Module):
+    """
+    Wrapper genérico para modelos cargados con timm desde HF Hub.
+
+    Para algunos modelos fundacionales no basta con crear el modelo de forma
+    genérica, sino que hay que respetar exactamente ciertos componentes
+    de arquitectura definidos en su model card.
+    """
+
+    def __init__(self, hf_hub_name: str, foundation_name: str) -> None:
+        super().__init__()
+        self.foundation_name = foundation_name
+
+        if foundation_name == "virchow2":
+            # Según la model card de Virchow2, hay que especificar
+            # explícitamente la MLP y la activación correctas.
+            self.model = timm.create_model(
+                f"hf-hub:{hf_hub_name}",
+                pretrained=True,
+                mlp_layer=SwiGLUPacked,
+                act_layer=torch.nn.SiLU,
+            )
+            # La card indica que el modelo devuelve tokens y recomienda
+            # construir el embedding concatenando:
+            #   - class token
+            #   - media de patch tokens
+            # con dimensión final 2560.
+            self.out_dim = 2560
+        elif foundation_name == "h_optimus_1":
+            # La model card de H-optimus-1 recomienda cargarlo así.
+            self.model = timm.create_model(
+                f"hf-hub:{hf_hub_name}",
+                pretrained=True,
+                init_values=1e-5,
+                dynamic_img_size=False,
+                num_classes=0,
+            )
+            # La card indica que devuelve embeddings de dimensión 1536.
+            self.out_dim = 1536
+        else:
+            # Caso genérico para otros modelos
+            self.model = timm.create_model(
+                f"hf-hub:{hf_hub_name}",
+                pretrained=True,
+                num_classes=0,
+            )
+            self.out_dim = self.model.num_features
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.foundation_name == "virchow2":
+            # Salida esperada: [B, 261, 1280]
+            # token 0 = CLS
+            # tokens 1-4 = register tokens
+            # tokens 5: = patch tokens
+            output = self.model(x)
+            class_token = output[:, 0]       # [B, 1280]
+            patch_tokens = output[:, 5:]     # [B, 256, 1280]
+            embedding = torch.cat([class_token, patch_tokens.mean(1)], dim=-1)  # [B, 2560]
+            return embedding
+
+        feats = self.model(x)
+        return feats
+
+
+class FoundationClassifier(nn.Module):
+    """
+    Modelo final = backbone fundacional + cabeza lineal.
+
+    Podemos congelar o no el backbone.
+    """
+
+    def __init__(self, backbone: nn.Module, out_dim: int, n_clases: int, freeze_backbone: bool = True):
+        super().__init__()
+        self.backbone = backbone
+        self.classifier = nn.Linear(out_dim, n_clases)
+
+        if freeze_backbone:
+            for p in self.backbone.parameters():
+                p.requires_grad = False
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        feats = self.backbone(x)
+        logits = self.classifier(feats)
+        return logits
+
+
+def build_foundation_model(
+    model_name: str,
+    n_clases: int,
+    freeze_backbone: bool = True,
+) -> nn.Module:
+    """
+    Construimos el modelo fundacional y le añadimos
+    una cabeza de clasificación.
     """
     model_name = model_name.lower()
 
-    if model_name == "resnet18":
-        weights = models.ResNet18_Weights.DEFAULT if pretrained else None
-        model = models.resnet18(weights=weights)
-        in_features = model.fc.in_features
-        model.fc = nn.Linear(in_features, n_clases)
+    if model_name == "phikon":
+        backbone = PhikonBackbone()
+        model = FoundationClassifier(
+            backbone=backbone,
+            out_dim=backbone.out_dim,
+            n_clases=n_clases,
+            freeze_backbone=freeze_backbone,
+        )
+        return model
 
-    elif model_name == "resnet50":
-        weights = models.ResNet50_Weights.DEFAULT if pretrained else None
-        model = models.resnet50(weights=weights)
-        in_features = model.fc.in_features
-        model.fc = nn.Linear(in_features, n_clases)
+    elif model_name == "virchow2":
+        backbone = TimmHFBackbone(
+            hf_hub_name="paige-ai/Virchow2",
+            foundation_name="virchow2",
+        )
+        model = FoundationClassifier(
+            backbone=backbone,
+            out_dim=backbone.out_dim,
+            n_clases=n_clases,
+            freeze_backbone=freeze_backbone,
+        )
+        return model
 
-    elif model_name == "densenet121":
-        weights = models.DenseNet121_Weights.DEFAULT if pretrained else None
-        model = models.densenet121(weights=weights)
-        in_features = model.classifier.in_features
-        model.classifier = nn.Linear(in_features, n_clases)
-
+    elif model_name == "h_optimus_1":
+        backbone = TimmHFBackbone(
+            hf_hub_name="bioptimus/H-optimus-1",
+            foundation_name="h_optimus_1",
+        )
+        model = FoundationClassifier(
+            backbone=backbone,
+            out_dim=backbone.out_dim,
+            n_clases=n_clases,
+            freeze_backbone=freeze_backbone,
+        )
+        return model  
     else:
-        raise ValueError(f"Modelo CNN no soportado: {model_name}")
-
-    return model
+        raise ValueError(f"Modelo fundacional no soportado: {model_name}")
 
 
 # =========================================================
 # OPTIMIZADOR Y SCHEDULER
 # =========================================================
 def build_optimizer(params, args: argparse.Namespace):
-    """
-    Construimos el optimizador a partir de los argumentos del experimento.
-    """
     opt_name = args.optimizer.lower()
 
     if opt_name == "adamw":
-        optimizer = AdamW(
-            params,
-            lr=args.lr,
-            weight_decay=args.weight_decay,
-        )
+        return AdamW(params, lr=args.lr, weight_decay=args.weight_decay)
     elif opt_name == "adam":
-        optimizer = Adam(
-            params,
-            lr=args.lr,
-            weight_decay=args.weight_decay,
-        )
+        return Adam(params, lr=args.lr, weight_decay=args.weight_decay)
     elif opt_name == "sgd":
-        optimizer = SGD(
-            params,
-            lr=args.lr,
-            momentum=args.momentum,
-            weight_decay=args.weight_decay,
-        )
+        return SGD(params, lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
     else:
         raise ValueError(f"Optimizador no soportado: {args.optimizer}")
-
-    return optimizer
 
 
 def build_scheduler(optimizer, args: argparse.Namespace):
     """
-    Construimos el scheduler de learning rate.
+    Construimos el scheduler del learning rate. (para controlar el paso del aprendizaje)
     """
+
     sched_name = args.scheduler.lower()
 
     if sched_name == "none":
         return None
-
-    if sched_name == "cosine":
-        return CosineAnnealingLR(
-            optimizer,
-            T_max=args.epochs,
-        )
-
-    if sched_name == "step":
-        return StepLR(
-            optimizer,
-            step_size=args.scheduler_step_size,
-            gamma=args.scheduler_gamma,
-        )
-
-    raise ValueError(f"Scheduler no soportado: {args.scheduler}")
+    elif sched_name == "cosine":
+        return CosineAnnealingLR(optimizer, T_max=args.epochs)
+    elif sched_name == "step":
+        return StepLR(optimizer, step_size=args.scheduler_step_size, gamma=args.scheduler_gamma)
+    else:
+        raise ValueError(f"Scheduler no soportado: {args.scheduler}")
 
 
 # =========================================================
-# FUNCIONES ADICIONALES PARA LAS MÉTRICAS
+# MÉTRICAS
 # =========================================================
-def compute_epoch_metrics_from_arrays(
-    y_true: np.ndarray,
-    y_pred: np.ndarray,
-) -> Dict[str, float]:
-    """
-    Calculamos métricas globales a partir de arrays de etiquetas reales y predichas.
-    """
-    metrics = {
+def compute_epoch_metrics_from_arrays(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]:
+    return {
         "acc": accuracy_score(y_true, y_pred),
         "f1_macro": f1_score(y_true, y_pred, average="macro"),
         "f1_weighted": f1_score(y_true, y_pred, average="weighted"),
     }
-    return metrics
 
 
 @torch.no_grad()
-def collect_preds_and_labels(
-    model: nn.Module,
-    dataloader,
-    device: torch.device,
-    desc: str | None = None,
-) -> Tuple[np.ndarray, np.ndarray]:
+def collect_preds_and_labels(model: nn.Module, dataloader, device: torch.device, desc: str | None = None):
     """
     Recorremos un DataLoader completo y devolvemos:
         - y_true
         - y_pred
     """
-    model.eval()
+
+    model.eval()  # Ponemos el modelo en modo evaluación
 
     all_labels: List[np.ndarray] = []
     all_preds: List[np.ndarray] = []
 
-    iterator = tqdm(dataloader, desc=desc, leave=False) if desc else dataloader
+
+    iterator = tqdm(dataloader, desc=desc, leave=False) if desc else dataloader # Para que no se muestre la barra de tqdm si no se necesita
 
     for imgs, labels, _paths in iterator:
+        # Envía tanto a las imgs como las labels a la tarjeta gráfica (o al mismo sitio en el que esté el device)
         imgs = imgs.to(device)
         labels = labels.to(device)
 
+        # Hacemos una pasada hacia adelante
         logits = model(imgs)
+        # Obtenemos las predicciones (la clase con mayor probabilidad para cada imagen)
         preds = torch.argmax(logits, dim=1)
 
+        # Guardamos las etiquetas reales y las predicciones en arrays de numpy en la CPU
         all_labels.append(labels.cpu().numpy())
         all_preds.append(preds.cpu().numpy())
 
+    # Concatenamos todos los arrays de etiquetas reales y predicciones para obtener un único array por cada uno 
     y_true = np.concatenate(all_labels, axis=0)
     y_pred = np.concatenate(all_preds, axis=0)
 
@@ -200,7 +280,7 @@ def train_one_epoch(
     device: torch.device,
     epoch_idx: int,
     num_epochs: int,
-) -> Dict[str, float]:
+):
     """
     Entrenamos una época y devolvemos:
         - train_loss
@@ -280,9 +360,9 @@ def evaluate_one_epoch(
     device: torch.device,
     epoch_idx: int,
     num_epochs: int,
-) -> Dict[str, float]:
+):
     """
-    Evaluamos una época completa sobre validación. Mismo funcionamiento que train_one_epoch pero sin retropropagación.
+    Evaluamos una época sobre validación. Mismo funcionamiento que train_one_epoch pero sin retropropagación.
     """
     model.eval()
 
@@ -292,11 +372,7 @@ def evaluate_one_epoch(
     all_labels: List[np.ndarray] = []
     all_preds: List[np.ndarray] = []
 
-    val_iter = tqdm(
-        dataloader,
-        desc=f"Val   epoch {epoch_idx}/{num_epochs}",
-        leave=False,
-    )
+    val_iter = tqdm(dataloader, desc=f"Val   epoch {epoch_idx}/{num_epochs}", leave=False)
 
     for imgs, labels, _paths in val_iter:
         imgs = imgs.to(device)
@@ -337,17 +413,13 @@ def evaluate_one_epoch(
 
 
 # =========================================================
-# VISUALIZACIÓN Y GUARDADO DE MATRICES DE CONFUSIÓN
+# MATRICES DE CONFUSIÓN
 # =========================================================
-def save_confusion_matrix_figure(
-    cm: np.ndarray,
-    class_names: List[str],
-    save_path: Path,
-    title: str,
-) -> None:
+def save_confusion_matrix_figure(cm: np.ndarray, class_names: List[str], save_path: Path, title: str) -> None:
     """
-    Guardamos una imagen PNG de la matriz de confusión.
+    Guardamos una figura PNG de la matriz de confusión.
     """
+
     fig, ax = plt.subplots(figsize=(8, 6))
     im = ax.imshow(cm, interpolation="nearest", cmap="Blues")
     fig.colorbar(im)
@@ -383,135 +455,63 @@ def save_confusion_matrix_figure(
 
 
 # =========================================================
-# ARGUMENTOS EN LA LÍNEA DE COMANDOS
+# ARGUMENTOS
 # =========================================================
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Entrenamiento de CNNs sobre patches RoI de BRACS."
+        description="Entrenamiento de modelos fundacionales sobre patches RoI de BRACS."
     )
 
     # Dataset / tarea
-    parser.add_argument("--n_clases", type=int, default=7, help="Número de clases (3 o 7).")
-    parser.add_argument(
-        "--dataset_name",
-        type=str,
-        default=None,
-        help="Nombre del .pkl dentro de data/datasets/roi.",
-    )
+    parser.add_argument("--n_clases", type=int, default=7)
+    parser.add_argument("--dataset_name", type=str, default=None)
 
     # Modelo
     parser.add_argument(
         "--model",
         type=str,
-        default="resnet18",
-        choices=["resnet18", "resnet50", "densenet121"],
-        help="Modelo CNN a entrenar.",
-    )
-    parser.add_argument(
-        "--pretrained",
-        type=int,
-        default=1,
-        help="Usar pesos preentrenados en ImageNet (1) o no (0).",
-    )
-
-    # Semilla
-    parser.add_argument(
-        "--seed",
-        type=int,
-        required=True,
-        help="Semilla aleatoria del experimento.",
+        default="phikon",
+        choices=["phikon", "virchow2", "h_optimus_1"],
     )
 
     # Entrenamiento
-    parser.add_argument("--epochs", type=int, default=20, help="Número de épocas.")
-    parser.add_argument("--batch_size", type=int, default=32, help="Tamaño de batch.")
-    parser.add_argument("--lr", type=float, default=3e-4, help="Learning rate.")
-    parser.add_argument(
-        "--weight_decay",
-        type=float,
-        default=1e-4,
-        help="Weight decay del optimizador.",
-    )
+    parser.add_argument("--freeze_backbone", type=int, default=1)
+    parser.add_argument("--seed", type=int, required=True)
+
+    # Hiperparámetros
+    parser.add_argument("--epochs", type=int, default=10)
+    parser.add_argument("--batch_size", type=int, default=4)
+    parser.add_argument("--lr", type=float, default=3e-4)
+    parser.add_argument("--weight_decay", type=float, default=1e-4)
 
     # Optimizador
-    parser.add_argument(
-        "--optimizer",
-        type=str,
-        default="adamw",
-        choices=["adamw", "adam", "sgd"],
-        help="Optimizador.",
-    )
-    parser.add_argument(
-        "--momentum",
-        type=float,
-        default=0.9,
-        help="Momentum para SGD.",
-    )
+    parser.add_argument("--optimizer", type=str, default="adamw", choices=["adamw", "adam", "sgd"])
+    parser.add_argument("--momentum", type=float, default=0.9)
 
     # Scheduler
-    parser.add_argument(
-        "--scheduler",
-        type=str,
-        default="cosine",
-        choices=["none", "cosine", "step"],
-        help="Scheduler del learning rate.",
-    )
-    parser.add_argument(
-        "--scheduler_step_size",
-        type=int,
-        default=10,
-        help="Step size de StepLR.",
-    )
-    parser.add_argument(
-        "--scheduler_gamma",
-        type=float,
-        default=0.1,
-        help="Gamma de StepLR.",
-    )
+    parser.add_argument("--scheduler", type=str, default="cosine", choices=["none", "cosine", "step"])
+    parser.add_argument("--scheduler_step_size", type=int, default=10)
+    parser.add_argument("--scheduler_gamma", type=float, default=0.1)
 
-    # Datos / transformaciones
-    parser.add_argument("--tam_imagen", type=int, default=512, help="Tamaño de entrada.")
-    parser.add_argument(
-        "--nivel_augmentation",
-        type=str,
-        default="none",
-        choices=["none", "light", "heavy"],
-        help="Nivel de augmentation. En baseline será none.",
-    )
-    parser.add_argument(
-        "--tipo_normalizacion",
-        type=str,
-        default="none",
-        choices=["none", "imagenet"],
-        help="Tipo de normalización. En baseline será none.",
-    )
-    parser.add_argument(
-        "--num_workers",
-        type=int,
-        default=4,
-        help="Workers del DataLoader.",
-    )
+    # Datos
+    parser.add_argument("--tam_imagen", type=int, default=224)
+    parser.add_argument("--nivel_augmentation", type=str, default="none", choices=["none", "light", "heavy"])
+    parser.add_argument("--tipo_normalizacion", type=str, default="none", choices=["none", "imagenet"])
+    parser.add_argument("--num_workers", type=int, default=4)
 
     # MLflow
-    parser.add_argument(
-        "--experiment_name",
-        type=str,
-        default="roi-cnn-7cls-baseline",
-        help="Nombre del experimento en MLflow.",
-    )
-    parser.add_argument(
-        "--run_name",
-        type=str,
-        default=None,
-        help="Nombre del run en MLflow.",
-    )
+    parser.add_argument("--experiment_name", type=str, default="roi-foundation-7cls-baseline")
+    parser.add_argument("--run_name", type=str, default=None)
 
     return parser.parse_args()
 
 
-
+# =========================================================
+# MAIN
+# =========================================================
 def main() -> None:
-    # Parseo y preparación inicial
+
+
     args = parse_args()
     paths.ensure_dirs()
     set_seed(args.seed)
@@ -520,7 +520,6 @@ def main() -> None:
     print(f"[INFO] Usando dispositivo: {device}")
     print(f"[INFO] Seed del experimento: {args.seed}")
 
-    # DataLoaders
     print("[INFO] Construyendo DataLoaders de train/val ...")
     train_loader, val_loader = get_roi_train_val_dataloaders(
         n_clases=args.n_clases,
@@ -532,42 +531,43 @@ def main() -> None:
         dataset_name=args.dataset_name,
     )
 
-    # Modelo, loss, optimizer y scheduler
-    print(f"[INFO] Construyendo modelo {args.model} ...")
-    model = build_cnn(
+    print(f"[INFO] Construyendo modelo fundacional {args.model} ...")
+    model = build_foundation_model(
         model_name=args.model,
         n_clases=args.n_clases,
-        pretrained=bool(args.pretrained),
+        freeze_backbone=bool(args.freeze_backbone),
     )
     model.to(device)
 
+    # Función de pérdida
     criterion = nn.CrossEntropyLoss()
-    optimizer = build_optimizer(model.parameters(), args)
+
+    # Optimizador
+    params_to_optimize = [p for p in model.parameters() if p.requires_grad]
+    optimizer = build_optimizer(params_to_optimize, args)
     scheduler = build_scheduler(optimizer, args)
 
-    # Configuración de MLflow
     tracking_uri = f"file:{paths.mlflow_root()}"
     mlflow.set_tracking_uri(tracking_uri)
     mlflow.set_experiment(args.experiment_name)
 
+    # MLFLOW
     print(f"[INFO] MLflow tracking URI: {tracking_uri}")
     print(f"[INFO] MLflow experiment: {args.experiment_name}")
 
-    # Run de MLflow
     with mlflow.start_run(run_name=args.run_name):
-        mlflow.set_tag("family", "cnn")
+        mlflow.set_tag("family", "foundation")
         mlflow.set_tag("phase", "baseline")
         mlflow.set_tag("task", f"{args.n_clases}cls")
         mlflow.set_tag("seed", args.seed)
 
-        # Hiperparámetros / configuración
         mlflow.log_params(
             {
-                "family": "cnn",
+                "family": "foundation",
                 "model": args.model,
                 "n_clases": args.n_clases,
                 "dataset_name": args.dataset_name or "default",
-                "pretrained": bool(args.pretrained),
+                "freeze_backbone": bool(args.freeze_backbone),
                 "seed": args.seed,
                 "epochs": args.epochs,
                 "batch_size": args.batch_size,
@@ -585,14 +585,10 @@ def main() -> None:
             }
         )
 
-        # Bucle principal de entrenamiento
         best_val_acc = -1.0
         best_val_f1_macro = -1.0
         best_epoch = -1
         best_model_state = None
-
-        train_history = []
-        val_history = []
 
         global_start = time.time()
 
@@ -602,7 +598,6 @@ def main() -> None:
 
             epoch_start = time.time()
 
-            # Train
             train_metrics = train_one_epoch(
                 model=model,
                 dataloader=train_loader,
@@ -613,7 +608,6 @@ def main() -> None:
                 num_epochs=args.epochs,
             )
 
-            # Val 
             val_metrics = evaluate_one_epoch(
                 model=model,
                 dataloader=val_loader,
@@ -623,7 +617,6 @@ def main() -> None:
                 num_epochs=args.epochs,
             )
 
-            # Scheduler 
             if scheduler is not None:
                 scheduler.step()
 
@@ -639,7 +632,6 @@ def main() -> None:
                 f"time={epoch_time:.1f}s"
             )
 
-            # Log por época en MLflow
             mlflow.log_metrics(
                 {
                     "train_loss": train_metrics["loss"],
@@ -655,11 +647,6 @@ def main() -> None:
                 step=epoch,
             )
 
-            train_history.append(train_metrics)
-            val_history.append(val_metrics)
-
-            # Guardado del mejor modelo 
-            # Priorizamos F1 macro. Si empata, usamos accuracy
             current_val_f1_macro = val_metrics["f1_macro"]
             current_val_acc = val_metrics["acc"]
 
@@ -689,21 +676,17 @@ def main() -> None:
         mlflow.log_metric("total_training_time_sec", total_training_time)
         mlflow.log_param("best_epoch", best_epoch)
 
-        # Guardado del mejor checkpoint
         if best_model_state is not None:
-            models_root = paths.models_root() / "cnn_roi"
+            models_root = paths.models_root() / "foundation_roi"
             models_root.mkdir(parents=True, exist_ok=True)
 
-            model_filename = (
-                f"{args.model}_{args.n_clases}cls_seed{args.seed}_best_epoch{best_epoch}.pt"
-            )
+            model_filename = f"{args.model}_{args.n_clases}cls_seed{args.seed}_best_epoch{best_epoch}.pt"
             model_path = models_root / model_filename
 
             torch.save(best_model_state, model_path)
             print(f"[INFO] Mejor modelo guardado en: {model_path}")
             mlflow.log_artifact(str(model_path))
 
-        # Evaluación final con best model
         if best_model_state is not None:
             print("[INFO] Generando matrices de confusión y classification reports ...")
 
@@ -713,7 +696,6 @@ def main() -> None:
 
             class_names = get_class_names(args.n_clases)
 
-            # TRAIN 
             y_true_train, y_pred_train = collect_preds_and_labels(
                 model=model,
                 dataloader=train_loader,
@@ -732,7 +714,6 @@ def main() -> None:
                 labels=list(range(args.n_clases)),
             )
 
-            # VAL 
             y_true_val, y_pred_val = collect_preds_and_labels(
                 model=model,
                 dataloader=val_loader,
@@ -751,13 +732,11 @@ def main() -> None:
                 labels=list(range(args.n_clases)),
             )
 
-            # Guardado en disco
-            figures_dir = paths.figures_root() / "cnn_roi"
-            results_dir = paths.results_root() / "cnn_roi"
+            figures_dir = paths.figures_root() / "foundation_roi"
+            results_dir = paths.results_root() / "foundation_roi"
             figures_dir.mkdir(parents=True, exist_ok=True)
             results_dir.mkdir(parents=True, exist_ok=True)
 
-            # Matrices de confusión train y val
             cm_train_png = figures_dir / f"cm_train_{args.model}_{args.n_clases}cls_seed{args.seed}.png"
             cm_val_png = figures_dir / f"cm_val_{args.model}_{args.n_clases}cls_seed{args.seed}.png"
 
@@ -774,13 +753,11 @@ def main() -> None:
                 title=f"Val confusion matrix - {args.model} - seed {args.seed}",
             )
 
-            # CSVs de matrices
             cm_train_csv = results_dir / f"cm_train_{args.model}_{args.n_clases}cls_seed{args.seed}.csv"
             cm_val_csv = results_dir / f"cm_val_{args.model}_{args.n_clases}cls_seed{args.seed}.csv"
             np.savetxt(cm_train_csv, train_cm, fmt="%d", delimiter=",")
             np.savetxt(cm_val_csv, val_cm, fmt="%d", delimiter=",")
 
-            # Reports JSON
             train_report_json = results_dir / f"report_train_{args.model}_{args.n_clases}cls_seed{args.seed}.json"
             val_report_json = results_dir / f"report_val_{args.model}_{args.n_clases}cls_seed{args.seed}.json"
 
@@ -789,7 +766,6 @@ def main() -> None:
             with open(val_report_json, "w") as f:
                 json.dump(val_report, f, indent=2)
 
-            # Log de artifacts en MLflow
             for artifact_path in [
                 cm_train_png,
                 cm_val_png,
@@ -800,7 +776,6 @@ def main() -> None:
             ]:
                 mlflow.log_artifact(str(artifact_path))
 
-            # Log extra de métricas finales
             mlflow.log_metric("train_f1_macro_final", float(train_report["macro avg"]["f1-score"]))
             mlflow.log_metric("train_f1_weighted_final", float(train_report["weighted avg"]["f1-score"]))
             mlflow.log_metric("val_f1_macro_final", float(val_report["macro avg"]["f1-score"]))
