@@ -1,4 +1,4 @@
-# Evaluación de alternativas de técnicas de preprocesamiento con Deep Learning para clasificación de imágenes histológicas en cáncer de mama
+# Repositorio del código del proyecto: Evaluación de alternativas de técnicas de preprocesamiento con Deep Learning para clasificación de imágenes histológicas en cáncer de mama
 
 ![Banner del proyecto](docs/images/bracs_banner.png)
 
@@ -40,7 +40,7 @@ Este repositorio recoge:
 - los scripts experimentales organizados por fases,
 - la memoria del TFG,
 - el código legado utilizado como referencia inicial,
-- y la documentación mínima necesaria para comprender y reproducir el flujo experimental en la carpeta `docs/`.
+- y la documentación mínima necesaria para comprender y reproducir el flujo experimental en la carpeta `docs/experiment_commands.md`.
 
 ---
 
@@ -85,7 +85,6 @@ tfg-bracs/
 │       │   ├── phase5_extra_analysis/    # Clustering, prototipos y análisis extra
 │       │   └── phase6_feature_selection/ # Hy-index y mRMR
 │       └── utils/            # Rutas, semillas y utilidades auxiliares
-├── .gitignore
 ├── pyproject.toml
 ├── README.md
 └── requirements.txt
