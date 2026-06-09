@@ -1,91 +1,118 @@
-# TFG BRACS
-Repositorio del Trabajo de Fin de Grado orientado a la comparación sistemática de técnicas de preprocesamiento en modelos de Deep Learning para la clasificación de imágenes histopatológicas de mama a partir del dataset **BRACS**.
+# Evaluación de alternativas de técnicas de preprocesamiento con Deep Learning para clasificación de imágenes histológicas en cáncer de mama
 
+![Banner del proyecto](docs/images/bracs_banner.png)
 
-## Estructura del proyecto (inicial, irá cambiando poco a poco)
+Repositorio del **Trabajo de Fin de Grado** centrado en la clasificación automática de lesiones mamarias histopatológicas a partir del dataset **BRACS**, mediante modelos de *Deep Learning*, modelos fundacionales y distintos análisis complementarios orientados a la interpretación de resultados.
+
+---
+
+## Autor
+
+**Juan Carlos Mora**  
+**Grado en Ingeniería Informática**  
+**Universidad de Granada (UGR)**  
+**Curso académico 2025–2026**
+
+---
+
+## Descripción general del proyecto
+
+El cáncer de mama sigue siendo uno de los problemas oncológicos más relevantes a nivel mundial, y el análisis histopatológico desempeña un papel central en su diagnóstico. Este proyecto estudia la clasificación automática de subtipos de lesiones mamarias a partir del dataset **BRACS**, siguiendo un flujo de trabajo realista, reproducible y orientado tanto al rendimiento predictivo como a la interpretación de la incertidumbre.
+
+A lo largo del proyecto se aborda el problema desde el nivel de **patch** hasta el nivel de **ROI**, incorporando además distintos bloques experimentales complementarios, entre ellos:
+
+- comparación de familias de modelos baseline,
+- uso de embeddings extraídos con modelos fundacionales,
+- estrategias de limpieza y reducción de patches,
+- agregación de predicciones a nivel de ROI,
+- análisis de abstención en casos dudosos,
+- análisis no supervisado del espacio latente,
+- estudio basado en prototipos claros,
+- y experimentos exploratorios de selección de características.
+
+---
+
+## Objetivos del repositorio
+
+Este repositorio recoge:
+
+- el código fuente desarrollado durante el proyecto,
+- los scripts experimentales organizados por fases,
+- la memoria del TFG,
+- el código legado utilizado como referencia inicial,
+- y la documentación mínima necesaria para comprender y reproducir el flujo experimental en la carpeta `docs/`.
+
+---
+
+## Resumen metodológico
+
+El proyecto siguió una metodología de trabajo **iterativa, experimental y guiada por resultados**. En lugar de fijar desde el inicio un pipeline completamente cerrado, cada fase se fue refinando a partir de la evidencia obtenida en la anterior.
+
+El flujo global del trabajo evolucionó a través de las siguientes etapas:
+
+1. **Entrenamiento de modelos baseline a nivel de patch**, comparando CNNs, Vision Transformers y modelos fundacionales.
+2. **Extracción de embeddings** a partir de los mejores modelos fundacionales.
+3. **Limpieza de patches**, estudiando métodos como Información Mutua, RandomUnderSampler y NCR.
+4. **Evaluación a nivel de ROI**, comparando distintas reglas de votación.
+5. **Análisis de abstención**, permitiendo al sistema derivar a revisión las ROIs más inciertas.
+6. **Bloques extra de análisis**, incluyendo clustering no supervisado, proyección a 3 clases y estudio por prototipos.
+7. **Selección de características**, comparando Hy-index y mRMR sobre embeddings fundacionales.
+
+---
+
+## Resumen visual
+
+![Resumen del proyecto](docs/images/project_overview.png)
+
+---
+
+## Estructura del repositorio
 
 ```text
 tfg-bracs/
-├── data/.      # Contiene todos los datos del proyecto
-│   ├── histoimage/
-│   │   ├── BRACS.xlsx
-│   │   ├── BRACS_RoI/
-│   │   │   └── latest_version/ # Contiene las imágenes RoI en sus splits oficiales:
-│   │   │       ├── train/
-│   │   │       ├── val/
-│   │   │       └── test/
-│   │   └── BRACS_RoI_patches_512_overlap_full/ # Contiene todos los patches generados a partir de las RoI, también organizados por split.
-│   │       ├── train/
-│   │       ├── val/
-│   │       └── test/
-│   └── datasets/ # Contiene los datasets construidos a partir de los patches, en formato .pkl y .npy.
-│       └── roi/
-│           ├── data_roi_3cls_full.pkl
-│           ├── data_roi_3cls_full.npy
-│           ├── data_roi_7cls_full.pkl
-│           └── data_roi_7cls_full.npy
-│
-├── outputs/
-│   ├── mlruns/
-│   ├── models/
-│   └── figures/
-│
-├── results/
-│
-├── runs/
-│
+├── docs/                     # Documentación adicional del proyecto
+├── legacy/                   # Código de referencia utilizado al inicio
+├── memoria/                  # Memoria final y figuras asociadas
 ├── src/
 │   └── bracs/
-│       ├── data/
-│       │   ├── __init__.py
-│       │   ├── inspector.py. # Script de inspección del dataset para contar muestras por split y por clase.
-│       │   ├── make_datasets.py. # Script para construir los datasets .pkl/.npy a partir de la estructura de patches.
-│       │   ├── roi_dataset.py. # Define el dataset de PyTorch para cargar patches RoI desde los .pkl.
-│       │   ├── dataloaders.py # Construye los DataLoader de train/val para PyTorch.
-│       │   └── transforms.py  # Define las transformaciones de entrada.
-│       │
+│       ├── data/             # Utilidades de datos, loaders y transformaciones
 │       ├── experiments/
-│       │   └── train_cnn_roi.py
-│       │
-│       └── utils/
-│           ├── __init__.py
-│           ├── paths.py. # Centraliza todas las rutas del proyecto.
-│           └── seed.py. # Fija la semilla global del experimento para reproducibilidad.
-└── .gitignore 
+│       │   ├── baseline/                 # Entrenamiento baseline inicial a nivel de patch
+│       │   ├── phase1_baseline/          # Embeddings y cabezas lineales
+│       │   ├── phase2_patch_cleaning/    # Limpieza y reducción de patches
+│       │   ├── phase3_roi_evaluation/    # Agregación patch→ROI y evaluación
+│       │   ├── phase4_abstention/        # Abstención y análisis de casos dudosos
+│       │   ├── phase5_extra_analysis/    # Clustering, prototipos y análisis extra
+│       │   └── phase6_feature_selection/ # Hy-index y mRMR
+│       └── utils/            # Rutas, semillas y utilidades auxiliares
+├── .gitignore
+├── pyproject.toml
+├── README.md
+└── requirements.txt
 ```
 
-## FASE 1: Benchmark de modelos para clasificación de patches histopatológicos
+---
 
-En esta fase del proyecto trabajamos a nivel de **patches** extraídos de las **Regions of Interest (RoI)**, con el objetivo de construir un **ranking inicial de modelos** que sirva como base para seleccionar el mejor candidato y, posteriormente, optimizarlo y extender el estudio a niveles superiores de análisis.
+## Tecnologías utilizadas
+
+- **Python**
+- **PyTorch**
+- **scikit-learn**
+- **NumPy / pandas**
+- **MLflow**
+- **Matplotlib**
+- **Git / GitHub**
+- **Overleaf** (para la memoria)
 
 ---
 
-### Objetivo de esta fase
+## Código legado
 
-La fase actual del proyecto consiste en construir un **benchmark inicial, limpio y reproducible**, comparando distintas familias de modelos sobre el problema de clasificación de patches RoI de BRACS.
-
-### Decisiones metodológicas fijadas en esta fase
-
-- Trabajamos **solo con patches**
-- Usamos únicamente los splits **train** y **val**
-- El split **test no se toca**
-- El benchmark inicial se hace en **7 clases**
-- El baseline inicial se realiza:
-  - **sin data augmentation**
-  - **sin normalización adicional**
-- Repetimos cada experimento con **5 semillas distintas**
-- Las métricas principales son:
-  - `val_f1_macro`
-  - `val_accuracy`
-
-### Semillas fijadas
-
-Las semillas del benchmark son:
-
-- `13`
-- `29`
-- `47`
-- `71`
-- `101`
+La carpeta `legacy/tfm-nerea/` conserva el código de referencia utilizado al comienzo del proyecto para comprender mejor la estructura del dataset y el flujo experimental inicial. Se ha mantenido separada del desarrollo principal para distinguir claramente entre el material heredado y la implementación final realizada en este TFG. Autora: Nerea Hernández Carpintero (Mentora del proyecto).
 
 ---
+
+## Memoria del proyecto
+
+La memoria completa del TFG se encuentra en la carpeta `memoria/`. 
+

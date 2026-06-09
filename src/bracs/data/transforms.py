@@ -1,5 +1,5 @@
 # ---------------------------------------------
-# TRANSFORMACIONES Y DATA AUGMENTATION PARA PARCHES ROI
+# TRANSFORMACIONES PARA PARCHES ROI
 # ---------------------------------------------
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ TipoNormalizacion = Literal["none", "imagenet"]
 def imagenet_estadisticas():
     """
     Devolvemos las estadísticas de media y desviación estándar de ImageNet para normalizar los parches.
-    Esto será util cuando queramos usar modelos preentrenados en ImageNet, que esperan esta normalización.
+    Esto será util para usar modelos preentrenados en ImageNet, que esperan esta normalización.
     """
     mean = [0.485, 0.456, 0.406]
     std = [0.229, 0.224, 0.225]

@@ -1,11 +1,9 @@
 # ---------------------------------------------
-# Script para inspeccionar los patches RoI del dataset BRACS.
-
-# En este módulo:
-# - Leemos las rutas de los patches usando `paths.py`.
-# - Recorremos las carpetas train/val/test.
-# - Contamos cuántas imágenes hay por split y por clase.
-# - Mostramos un pequeño resumen en consola.
+# INSPECCIONAR LOS PATCHES RoI DEL DATASET BRACS:
+#   - Leemos las rutas de los patches usando utils/paths.py
+#   - Recorremos las carpetas train/val/test
+#   - Contamos cuántas imágenes hay por split y por clase
+#   - Mostramos un resumen por consola
 # ---------------------------------------------
 
 from pathlib import Path
@@ -53,10 +51,6 @@ def inspect_split(split: str) -> None:
 
 
 def main():
-    """
-    Aquí llamamos a inspect_split para train, test o val
-    """
-    
     print(f"Raíz de patches RoI: {bracs_roi_patches_root()}")
 
     for split in ["train", "val", "test"]:

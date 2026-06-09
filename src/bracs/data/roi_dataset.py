@@ -1,5 +1,5 @@
 # ---------------------------------------------
-# DEFINIMOS UN DATASET DE PYTORCH PARA CONVERTIR LOS .pkl Y SUS RUTAS EN TENSORES PARA ENTRENAR LOS MODELOS DE CLASIFICACIÓN DE PATCHES  
+# DEFINIMOS UN DATASET DE PYTORCH PARA CONVERTIR LOS .pkl Y SUS RUTAS EN TENSORES PARA ENTRENAR LOS MODELOS DE CLASIFICACIÓN  
 # ---------------------------------------------
 from __future__ import annotations
 
@@ -43,7 +43,6 @@ def get_class_names(n_clases: int) -> List[str]:
 def default_roi_pkl_name(n_clases: int) -> str:
     """
     Elegimos el nombre del .pkl por defecto para un nº de clases dado.
-    Si queremos otras variantes (con otra resolución o subset), podremos cambiarlo fácilmente.
     """
     if n_clases == 3:
         return "data_roi_3cls_full.pkl"
@@ -63,8 +62,7 @@ def load_roi_pkl(n_clases: int, dataset_name: Optional[str] = None,) -> Dict[str
     
     Args:
         n_clases: 3 o 7
-        dataset_name: nombre del .pkl dentro de data/datasets/roi.
-                      Si es None, usamos el nombre por defecto según n_clases.
+        dataset_name: nombre del .pkl dentro de data/datasets/roi. Si no hay, usamos el nombre por defecto según n_clases.
 
     Returns:
         data: diccionario con las claves "train", "val", "test".

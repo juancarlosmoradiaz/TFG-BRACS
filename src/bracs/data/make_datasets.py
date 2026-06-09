@@ -1,7 +1,7 @@
 # ---------------------------------------------
-# SCRIPT PARA CONSTRUIR LOS DATASETS DE PATCHES DE ROIs 
-# - Leemos los patches ya generados (BRACS_RoI_patches_overlapping_512)
-# - Construimos un diccionario con la estructura:
+# CONSTRUIR LOS DATASETS DE PATCHES DE ROIs:
+#   - Leemos los patches ya generados (BRACS_RoI_patches_overlapping_512)
+#   - Construimos un diccionario con la estructura:
 #     {
 #         "meta": {...},
 #         "splits": {
@@ -10,10 +10,8 @@
 #             "test":  {...},
 #         }
 #     }
-# - Podemos generar un dataset de:
-#     - 7 clases
-#     - 3 clases
-# Guardamos el resultado tanto en .pkl como en .npy
+#   - Podemos generar un dataset de 7 o 3 clases
+#   - Guardamos el resultado tanto en .pkl como en .npy
 # ---------------------------------------------
 
 from __future__ import annotations
@@ -110,7 +108,7 @@ def collect_split_data(split: str, n_classes: int, class_to_index: Dict[str, int
         if n_classes == 7:
             class_name = label_7
         else:
-            # n_classes == 3: convertimos a AT/BT/MT
+            # convertimos a AT/BT/MT
             if label7_to_label3 is None or label_7 not in label7_to_label3:
                 raise ValueError(f"No sabemos agrupar la clase 7cls '{label_7}' a 3cls.")
             class_name = label7_to_label3[label_7]
@@ -217,7 +215,7 @@ def main():
         pickle.dump(dataset, f)
     print(f"\nDataset guardado en (pkl): {pkl_path}")
 
-    # Guardamos también en .npy (por si queremos cargar solo con numpy)
+    # Guardamos también en .npy
     np.save(npy_path, dataset, allow_pickle=True)
     print(f"\nDataset guardado en (npy):  {npy_path}")
 

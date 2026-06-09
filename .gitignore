@@ -7,24 +7,55 @@ __pycache__/
 
 # Entornos virtuales
 .venv/
+venv/
+env/
 .env/
 
-# Datos grandes / sensibles
-data/histoimage/BRACS_RoI/
-data/histoimage/BRACS_RoI_patches_512_overlap_full/
-data/histoimage/*.npy
-data/histoimage/*.pkl
-data/histoimage/BRACS.xlsx
+# Sistema / editores
+.DS_Store
+.vscode/
+.idea/
 
-# Salidas de experimentos
+# Logs y temporales
+logs/
+*.log
+
+# Datos grandes / sensibles
+data/
 outputs/
 results/
-runs/
-weights/
+resultados_csv/
+resultados_png/
+
+# Modelos y artefactos pesados
+*.pt
+*.pth
+*.ckpt
+*.h5
+*.hdf5
+*.npy
+*.npz
+*.pkl
+
+# MLflow
 mlruns/
+outputs/mlruns/
+outputs/runs/
 
-# --- VSCode ---
-.vscode/
+# LaTeX build
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.lof
+*.lot
+*.out
+*.synctex.gz
+*.toc
+*.nav
+*.snm
+*.vrb
 
-# --- Otros ---
-*.log
+# Jupyter
+.ipynb_checkpoints/

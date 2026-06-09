@@ -1,5 +1,5 @@
 # ---------------------------------------------
-# DATA LOADERS PARA PARCHES ROI
+# DATALOADERS PARA PARCHES ROI (train y val)
 # ---------------------------------------------
 
 from __future__ import annotations
@@ -28,16 +28,15 @@ def get_roi_dataloaders(n_clases: int,
     """
     Construimos un DataLoader para los parches ROI a partir de los parámetros:
     Args:
-        - n_clases: número de clases (3 o 7)
+        - n_clases: 3 o 7
         - batch_size: tamaño del batch
-        - nivel_augmentation: nivel de data augmentation ("none", "light", "heavy")
-        - tipo_normalizacion: tipo de normalización ("none", "imagenet")
+        - nivel_augmentation: "none", "light", "heavy"
+        - tipo_normalizacion: "none", "imagenet"
         - num_workers: número de workers para cargar los datos
         - dataset_name: nombre del .pkl 
-        
     Returns:
         (train_loader, val_loader, test_loader)
-        Cargamos tambien el test, aunque lo usaremos SOLO para el script final
+        Cargamos tambien el test, aunque lo usaremos SOLO para la evaluación final
     """
     
     # Construimos las transformaciones para cada split
@@ -108,9 +107,7 @@ def get_roi_train_val_dataloaders(
     Solo construye y devuelve DataLoaders de:
         - train
         - val
-    El split de test NI SIQUIERA se carga aquí, para evitar
-    tentaciones de usarlo antes de tiempo. El script de entrenamiento
-    trabajará SIEMPRE con esta función.
+    El split de test NO se carga, para evitar tentaciones de usarlo antes de tiempo.
     """
     tfms = transformaciones_roi(
         tam_imagen=tam_imagen,
