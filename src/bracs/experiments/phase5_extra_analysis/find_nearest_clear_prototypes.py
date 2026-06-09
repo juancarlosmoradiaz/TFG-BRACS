@@ -1,3 +1,17 @@
+# ---------------------------------------------
+# BÚSQUEDA DE PROTOTIPOS CLAROS MÁS CERCANOS
+# ---------------------------------------------
+# Entrada:
+#   - Archivo NumPy (.npy) con los embeddings de las ROIs
+#   - Archivo CSV con metadata de las ROIs
+#   - Archivo CSV con los prototipos claros seleccionados
+#   - Archivo CSV de casos dudosos (revisión)
+#   - Archivo CSV con las predicciones de ROI
+#
+# Salida:
+#   - Archivo CSV con los k prototipos más cercanos para cada ROI dudosa y sus métricas de similitud
+# ---------------------------------------------
+
 from __future__ import annotations
 
 import argparse
@@ -48,39 +62,43 @@ def main() -> None:
     print(f"[INFO] Cargando predicciones ROI: {roi_pred_path}")
     roi_pred_df = pd.read_csv(roi_pred_path)
 
+    # Validamos que coincida la longitud de metadata y embeddings
     if len(roi_meta) != len(X):
         raise ValueError("La metadata ROI no coincide con la matriz de embeddings ROI.")
 
-    # Índice rápido roi_id -> fila de embedding/meta
+    # Generamos un mapeo rápido de roi_id a su índice en la matriz de embeddings
     roi_to_idx = {roi_id: i for i, roi_id in enumerate(roi_meta["roi_id"].astype(str).tolist())}
 
-    # Filtramos prototipos que sí existan en roi_meta
+    # Conservamos únicamente los prototipos y casos de revisión válidos en nuestra metadata
     clear_df = clear_df[clear_df["roi_id"].astype(str).isin(roi_to_idx)].copy()
     review_df = review_df[review_df["roi_id"].astype(str).isin(roi_to_idx)].copy()
 
     print(f"[INFO] Nº prototipos utilizables: {len(clear_df)}")
     print(f"[INFO] Nº ROIs dudosas utilizables: {len(review_df)}")
 
-    # Embeddings de prototipos
+    # Extraemos los embeddings de los prototipos
     clear_indices = [roi_to_idx[rid] for rid in clear_df["roi_id"].astype(str)]
     X_clear = X[clear_indices]
 
     rows = []
 
+    # Para cada ROI dudosa, calculamos su similitud coseno con todos los prototipos claros
     for _, review_row in review_df.iterrows():
         roi_id = str(review_row["roi_id"])
         idx = roi_to_idx[roi_id]
         x_query = X[idx].reshape(1, -1)
 
+        # Calculamos la similitud coseno
         sims = cosine_similarity(x_query, X_clear)[0]
         top_idx = np.argsort(sims)[::-1][: args.top_k]
 
-        # Datos de la ROI dudosa desde roi_predictions_csv
+        # Recuperamos la información predictiva de la ROI dudosa
         pred_row = roi_pred_df[roi_pred_df["roi_id"].astype(str) == roi_id]
         if len(pred_row) != 1:
             raise ValueError(f"No se encontró exactamente una fila en roi_predictions para {roi_id}")
         pred_row = pred_row.iloc[0]
 
+        # Guardamos la información de los K prototipos más cercanos
         for rank, proto_pos in enumerate(top_idx, start=1):
             proto = clear_df.iloc[proto_pos]
 

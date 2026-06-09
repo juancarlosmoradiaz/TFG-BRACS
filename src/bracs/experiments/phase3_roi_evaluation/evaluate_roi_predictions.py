@@ -1,3 +1,23 @@
+# ---------------------------------------------
+# EVALUACIÓN DE PREDICCIONES A NIVEL DE ROI
+# ---------------------------------------------
+#
+# Objetivo:
+#   - Evaluar las predicciones a nivel de ROI generadas para una regla de votación concreta:
+#       * mean_proba, majority_vote, o most_malignant
+#   - Calcular accuracy, f1_macro y reporte detallado por clase
+#   - Generar y guardar la matriz de confusión tanto en valores absolutos como en porcentajes
+#   - Guardar las métricas de rendimiento en formato JSON para su posterior análisis
+#
+# Entrada:
+#   - Archivo CSV con las predicciones agregadas por ROI
+#
+# Salida:
+#   - Archivo JSON con las métricas detalladas del experimento
+#   - Archivos CSV con las matrices de confusión absolutas y porcentuales
+#   - Imagen PNG con la representación gráfica de la matriz de confusión porcentual
+# ---------------------------------------------
+
 from __future__ import annotations
 
 import argparse
@@ -10,26 +30,50 @@ import pandas as pd
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, f1_score
 
 
+
 CLASS_NAMES_7 = ["N", "PB", "UDH", "FEA", "ADH", "DCIS", "IC"]
 
 
+# =========================================================
+# ARGUMENTOS
+# =========================================================
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Evalúa predicciones a nivel de ROI para una regla de votación concreta."
     )
-    parser.add_argument("--input_csv", type=str, required=True)
+    parser.add_argument(
+        "--input_csv",
+        type=str,
+        required=True,
+        help="Ruta al archivo CSV con las predicciones a nivel de ROI.",
+    )
     parser.add_argument(
         "--voting_method",
         type=str,
         required=True,
         choices=["mean_proba", "majority_vote", "most_malignant"],
+        help="Regla de votación utilizada para agregar las predicciones de patches.",
     )
-    parser.add_argument("--output_dir", type=str, required=True)
-    parser.add_argument("--n_clases", type=int, default=7)
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        required=True,
+        help="Directorio donde se guardarán las figuras y los archivos de métricas.",
+    )
+    parser.add_argument(
+        "--n_clases",
+        type=int,
+        default=7,
+        help="Número de clases del problema.",
+    )
     return parser.parse_args()
 
 
+
 def get_pred_col(voting_method: str) -> str:
+    """
+    Asocia la regla de votación solicitada con el nombre de su columna en el CSV.
+    """
     mapping = {
         "mean_proba": "y_pred_mean_proba",
         "majority_vote": "y_pred_majority_vote",
@@ -45,6 +89,10 @@ def plot_confusion_matrix_with_percentages(
     title: str,
     output_path: Path,
 ) -> None:
+    """
+    Genera un gráfico PNG con la matriz de confusión. Muestra los porcentajes e incluye
+    el conteo absoluto de muestras entre paréntesis en cada celda.
+    """
     fig, ax = plt.subplots(figsize=(9, 7))
     im = ax.imshow(cm_pct, interpolation="nearest", aspect="auto")
     plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
@@ -58,6 +106,7 @@ def plot_confusion_matrix_with_percentages(
     ax.set_xticklabels(class_names, rotation=45, ha="right")
     ax.set_yticklabels(class_names)
 
+    # Rellenamos las celdas con el texto de porcentaje y cantidad absoluta
     for i in range(cm_abs.shape[0]):
         for j in range(cm_abs.shape[1]):
             txt = f"{cm_pct[i, j]:.1f}%\n({cm_abs[i, j]})"
@@ -68,6 +117,7 @@ def plot_confusion_matrix_with_percentages(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(output_path, dpi=300, bbox_inches="tight")
     plt.close()
+
 
 
 def main() -> None:
@@ -89,6 +139,7 @@ def main() -> None:
     labels = list(range(args.n_clases))
     class_names = CLASS_NAMES_7 if args.n_clases == 7 else [str(i) for i in labels]
 
+    # Cálculo de métricas
     acc = accuracy_score(y_true, y_pred)
     f1_macro = f1_score(y_true, y_pred, average="macro")
 
@@ -101,6 +152,7 @@ def main() -> None:
         zero_division=0,
     )
 
+    # Matrices de confusión: conteos absolutos y normalizada por filas (porcentajes)
     cm_abs = confusion_matrix(y_true, y_pred, labels=labels)
     row_sums = cm_abs.sum(axis=1, keepdims=True)
     cm_pct = np.divide(
@@ -110,6 +162,7 @@ def main() -> None:
         where=row_sums != 0,
     )
 
+    # Estructura del JSON de salida
     stem = input_path.stem.replace("_roi_predictions", "")
     metrics = {
         "input_csv": str(input_path),
@@ -125,12 +178,14 @@ def main() -> None:
     cm_pct_csv = output_dir / f"{stem}_{args.voting_method}_cm_pct.csv"
     cm_png = output_dir / f"{stem}_{args.voting_method}_cm.png"
 
+    # Guardado de archivos
     with open(metrics_path, "w", encoding="utf-8") as f:
         json.dump(metrics, f, indent=2, ensure_ascii=False)
 
     pd.DataFrame(cm_abs, index=class_names, columns=class_names).to_csv(cm_abs_csv)
     pd.DataFrame(cm_pct, index=class_names, columns=class_names).to_csv(cm_pct_csv)
 
+    # Dibujado y guardado del gráfico
     plot_confusion_matrix_with_percentages(
         cm_abs=cm_abs,
         cm_pct=cm_pct,

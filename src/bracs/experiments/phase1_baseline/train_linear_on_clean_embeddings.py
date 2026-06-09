@@ -1,6 +1,5 @@
 # ---------------------------------------------
 # ENTRENAMIENTO DE CABEZA LINEAL SOBRE EMBEDDINGS
-# ---------------------------------------------
 #   - Carga embeddings ya extraídos
 #   - Usar train limpio y val original
 #   - Entrenar únicamente una capa lineal

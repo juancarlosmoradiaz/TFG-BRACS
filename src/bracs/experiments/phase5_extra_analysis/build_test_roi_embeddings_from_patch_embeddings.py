@@ -1,3 +1,15 @@
+# ---------------------------------------------
+# CONSTRUCCIÓN DE EMBEDDINGS ROI A PARTIR DE EMBEDDINGS PARCHES
+# ---------------------------------------------
+# Entrada:
+#   - Archivo H5 con embeddings de parches de test
+#   - Archivo CSV con metadata de parches de test
+#
+# Salida:
+#   - Archivo CSV con la metadata de las ROIs construidas
+#   - Archivo NumPy (.npy) con los embeddings agregados por ROI
+# ---------------------------------------------
+
 from __future__ import annotations
 
 import argparse
@@ -20,7 +32,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def extract_roi_id_from_filename(file_name: str) -> str:
-    # Por ejemplo: BRACS_1855_N_2_3.jpeg -> BRACS_1855_N_2
+    # Ejemplo: BRACS_1855_N_2_3.jpeg -> BRACS_1855_N_2
     stem = Path(file_name).stem
     parts = stem.split("_")
     if len(parts) < 4:
@@ -45,6 +57,7 @@ def main() -> None:
     print(f"[INFO] Cargando metadata CSV: {metadata_path}")
     meta = pd.read_csv(metadata_path)
 
+    # Validaciones de consistencia de los datos
     if len(meta) != len(features):
         raise ValueError("La metadata no coincide con el número de embeddings.")
     if not np.array_equal(meta["row_id"].to_numpy(), row_ids):
@@ -52,7 +65,7 @@ def main() -> None:
     if not np.array_equal(meta["label"].to_numpy(), labels):
         raise ValueError("Las labels del CSV no coinciden con las del H5.")
 
-    # Construcción de roi_id
+    # Derivamos el roi_id de cada patch
     if "file_name" in meta.columns:
         meta["roi_id"] = meta["file_name"].apply(extract_roi_id_from_filename)
     else:
@@ -62,10 +75,10 @@ def main() -> None:
     print(f"[INFO] Nº patches: {len(meta)}")
     print(f"[INFO] Nº ROIs únicas: {meta['roi_id'].nunique()}")
 
-    # Agrupación por ROI
     roi_rows = []
     roi_embeddings = []
 
+    # Agrupamos por ROI para calcular el embedding promedio
     for roi_id, idx in meta.groupby("roi_id", sort=True).groups.items():
         idx = np.array(list(idx), dtype=int)
 
@@ -75,6 +88,7 @@ def main() -> None:
         if len(roi_labels) != 1:
             raise ValueError(f"La ROI {roi_id} tiene varias etiquetas: {roi_labels.tolist()}")
 
+        # Calculamos la media de los embeddings de los patches de esta ROI
         mean_embedding = roi_feats.mean(axis=0)
 
         roi_rows.append({
@@ -89,6 +103,7 @@ def main() -> None:
     roi_meta_df = pd.DataFrame(roi_rows)
     roi_embeddings_np = np.stack(roi_embeddings, axis=0)
 
+    # Rutas de salida para los datos a nivel de ROI
     csv_out = output_dir / f"{args.model}_test_roi_embeddings_metadata.csv"
     npy_out = output_dir / f"{args.model}_test_roi_embeddings.npy"
 

@@ -1,3 +1,17 @@
+# ---------------------------------------------
+# ANÁLISIS NO SUPERVISADO CON K-MEANS
+# ---------------------------------------------
+# Entrada:
+#   - Archivo H5 con embeddings de parches de train
+#   - Archivo CSV con metadata de parches de train
+#
+# Salida:
+#   - Archivos CSV con proyecciones PCA y varianza explicada
+#   - Archivos CSV con asignaciones de cluster e informes de cruce con la clase real
+#   - Gráficos PNG con la varianza explicada de PCA y proyección coloreada por clase real y por cluster
+#   - Mapa de calor en PNG que cruza la clase real con el cluster
+# ---------------------------------------------
+
 from __future__ import annotations
 
 import argparse
@@ -27,6 +41,9 @@ def parse_args() -> argparse.Namespace:
 
 
 def ensure_dirs(base_out: Path) -> dict[str, Path]:
+    """
+    Asegura la creación de los subdirectorios de salida para PCA y KMeans.
+    """
     pca_dir = base_out / "pca"
     kmeans_dir = base_out / "kmeans"
     pca_dir.mkdir(parents=True, exist_ok=True)
@@ -35,6 +52,9 @@ def ensure_dirs(base_out: Path) -> dict[str, Path]:
 
 
 def load_embeddings(h5_path: Path, metadata_csv: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray, pd.DataFrame]:
+    """
+    Carga los embeddings del archivo H5 y los alinea con su archivo de metadata.
+    """
     with h5py.File(h5_path, "r") as f:
         features = f["features"][:]
         labels = f["labels"][:]
@@ -42,6 +62,7 @@ def load_embeddings(h5_path: Path, metadata_csv: Path) -> tuple[np.ndarray, np.n
 
     meta = pd.read_csv(metadata_csv)
 
+    # Validamos consistencia formal
     if len(meta) != features.shape[0]:
         raise ValueError("La metadata no coincide en número de filas con los embeddings.")
     if len(labels) != features.shape[0]:
@@ -57,6 +78,9 @@ def load_embeddings(h5_path: Path, metadata_csv: Path) -> tuple[np.ndarray, np.n
 
 
 def plot_pca_variance(explained_ratio: np.ndarray, model_name : str, save_path: Path) -> None:
+    """
+    Dibuja y guarda la curva de varianza explicada acumulada para los componentes de PCA.
+    """
     cumulative = np.cumsum(explained_ratio)
 
     plt.figure(figsize=(8, 5))
@@ -71,6 +95,9 @@ def plot_pca_variance(explained_ratio: np.ndarray, model_name : str, save_path: 
 
 
 def plot_pca_true_labels(pca_2d: np.ndarray, meta: pd.DataFrame, model_name: str , save_path: Path) -> None:
+    """
+    Dibuja la proyección PCA 2D coloreada en base a las etiquetas reales del dataset.
+    """
     class_names = sorted(meta["class_name"].unique().tolist())
 
     plt.figure(figsize=(8.5, 6.5))
@@ -95,6 +122,9 @@ def plot_pca_true_labels(pca_2d: np.ndarray, meta: pd.DataFrame, model_name: str
 
 
 def plot_pca_clusters(pca_2d: np.ndarray, clusters: np.ndarray, k: int, model_name: str, save_path: Path) -> None:    
+    """
+    Dibuja la proyección PCA 2D coloreada por la asignación resultante de clusters de K-Means.
+    """
     plt.figure(figsize=(8.5, 6.5))
     for cluster_id in sorted(np.unique(clusters)):
         mask = clusters == cluster_id
@@ -117,6 +147,9 @@ def plot_pca_clusters(pca_2d: np.ndarray, clusters: np.ndarray, k: int, model_na
 
 
 def plot_heatmap(cluster_vs_class_pct: pd.DataFrame, k: int, model_name: str, save_path: Path) -> None:
+    """
+    Genera un mapa de calor que cruza la clase real y el cluster asignado.
+    """
     fig, ax = plt.subplots(figsize=(8, 5.5))
     im = ax.imshow(cluster_vs_class_pct.to_numpy(), aspect="auto")
 
@@ -159,16 +192,17 @@ def main() -> None:
     print(f"[INFO] Nº patches: {features.shape[0]}")
     print(f"[INFO] Dimensión embedding: {features.shape[1]}")
 
-    # Estandarización
+    # Estandarizamos los datos antes del análisis dimensional
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(features)
 
-    # PCA
+    # Reducción de dimensiones con PCA
     pca = PCA(n_components=args.pca_components, random_state=args.random_state)
     X_pca = pca.fit_transform(X_scaled)
     explained_ratio = pca.explained_variance_ratio_
     cumulative_ratio = np.cumsum(explained_ratio)
 
+    # Exportamos el resumen de varianza de PCA
     pca_variance_df = pd.DataFrame({
         "component": np.arange(1, len(explained_ratio) + 1),
         "explained_variance_ratio": explained_ratio,
@@ -176,11 +210,13 @@ def main() -> None:
     })
     pca_variance_df.to_csv(dirs["pca"] / "pca_variance.csv", index=False)
 
+    # Exportamos las proyecciones en las dos primeras componentes
     pca_2d_df = meta.copy()
     pca_2d_df["pc1"] = X_pca[:, 0]
     pca_2d_df["pc2"] = X_pca[:, 1]
     pca_2d_df.to_csv(dirs["pca"] / "pca_projection_2d.csv", index=False)
 
+    # Graficamos la varianza explicada y la proyección coloreada por clase real
     plot_pca_variance(explained_ratio, pretty_model_name, dirs["pca"] / "pca_explained_variance.png")
     plot_pca_true_labels(X_pca[:, :2], meta, pretty_model_name, dirs["pca"] / "pca_true_labels_2d.png")
 
@@ -188,6 +224,7 @@ def main() -> None:
 
     summary_rows = []
 
+    # Iteramos ejecutando K-Means para los distintos valores de K configurados
     for k in args.k_values:
         print(f"[INFO] Ejecutando K-Means con k={k}...")
 
@@ -198,6 +235,7 @@ def main() -> None:
         )
         clusters = kmeans.fit_predict(X_pca)
 
+        # Calculamos las métricas de calidad de clustering
         sil = silhouette_score(X_pca, clusters)
         ari = adjusted_rand_score(labels, clusters)
         nmi = normalized_mutual_info_score(labels, clusters)
@@ -210,18 +248,21 @@ def main() -> None:
             "nmi": nmi,
         })
 
+        # Guardamos la asignación de clusters a parches
         assign_df = meta.copy()
         assign_df["cluster"] = clusters
         assign_df["pc1"] = X_pca[:, 0]
         assign_df["pc2"] = X_pca[:, 1]
         assign_df.to_csv(dirs["kmeans"] / f"k{k}_assignments.csv", index=False)
 
+        # Matriz de cruzamiento: conteos absolutos y porcentajes normalizados
         cluster_vs_class = pd.crosstab(assign_df["cluster"], assign_df["class_name"])
         cluster_vs_class.to_csv(dirs["kmeans"] / f"k{k}_cluster_vs_class_counts.csv")
 
         cluster_vs_class_pct = cluster_vs_class.div(cluster_vs_class.sum(axis=1), axis=0) * 100.0
         cluster_vs_class_pct.to_csv(dirs["kmeans"] / f"k{k}_cluster_vs_class_pct.csv")
 
+        # Dibujamos las proyecciones coloreadas por cluster y su mapa de calor cruzado
         plot_pca_clusters(X_pca[:, :2], clusters, k, pretty_model_name, dirs["kmeans"] / f"k{k}_pca_clusters.png")
         plot_heatmap(cluster_vs_class_pct, k, pretty_model_name, dirs["kmeans"] / f"k{k}_cluster_vs_class_heatmap.png")
 
@@ -229,6 +270,7 @@ def main() -> None:
             f"[INFO] k={k} | silhouette={sil:.4f} | ARI={ari:.4f} | NMI={nmi:.4f}"
         )
 
+    # Exportamos el resumen global de KMeans
     summary_df = pd.DataFrame(summary_rows)
     summary_df.to_csv(dirs["kmeans"] / "kmeans_summary.csv", index=False)
 

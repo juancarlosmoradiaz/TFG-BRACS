@@ -1,3 +1,14 @@
+# ---------------------------------------------
+# SELECCIÓN DE VARIABLES CON MRMR (MAXIMUM RELEVANCE MINIMUM REDUNDANCY)
+# ---------------------------------------------
+# Entrada:
+#   - Archivo H5 de embeddings de train
+#
+# Salida:
+#   - Archivo NumPy (.npy) con los índices de las variables seleccionadas por mRMR
+#   - Archivo JSON con el resumen del experimento
+# ---------------------------------------------
+
 from __future__ import annotations
 
 import argparse
@@ -41,6 +52,7 @@ def main() -> None:
     print(f"[INFO] Shape X_train: {X.shape}")
     print(f"[INFO] Shape y_train: {y.shape}")
 
+    # Submuestreo opcional para mitigar problemas de memoria y cómputo
     if args.max_samples is not None:
         rng = np.random.default_rng(args.random_state)
         n_total = X.shape[0]
@@ -57,7 +69,7 @@ def main() -> None:
     if args.k_features > n_features_total:
         raise ValueError(f"k_features={args.k_features} > n_features_total={n_features_total}")
 
-    # mRMR trabaja cómodamente con DataFrame/Series
+    # mRMR de la biblioteca externa mrmr requiere DataFrames de Pandas
     col_names = [f"f{i}" for i in range(n_features_total)]
     X_df = pd.DataFrame(X, columns=col_names)
     y_sr = pd.Series(y)
@@ -65,7 +77,7 @@ def main() -> None:
     print(f"[INFO] Ejecutando mRMR con K={args.k_features}")
     selected_features = mrmr_classif(X=X_df, y=y_sr, K=args.k_features)
 
-    # convertir f123 -> 123
+    # Convertimos los nombres de las columnas ('f123') de vuelta a índices numéricos enteros (123)
     selected_idx = np.array([int(name[1:]) for name in selected_features], dtype=int)
     selected_idx = np.unique(selected_idx)
 
@@ -79,6 +91,7 @@ def main() -> None:
     idx_path = output_dir / f"{args.model}_mrmr_selected_idx_k{args.k_features}.npy"
     np.save(idx_path, selected_idx)
 
+    # Generamos el informe del experimento en JSON
     summary = {
         "model": args.model,
         "train_h5": str(train_h5),

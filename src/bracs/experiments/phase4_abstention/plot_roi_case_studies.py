@@ -1,11 +1,23 @@
+# ---------------------------------------------
+# DIBUJO DE ESTUDIOS DE CASOS DE ROI
+# ---------------------------------------------
+# Entrada:
+#   - Archivos CSV con casos para revisión (abstención) o decisiones finales de ROI
+#   - Imágenes originales de las ROIs y sus parches asociados en disco
+#
+# Salida:
+#   - Imágenes PNG combinadas mostrando la ROI original al lado de un subconjunto de parches
+#     y sus métricas diagnósticas en la cabecera
+# ---------------------------------------------
+
 from __future__ import annotations
 
-from pathlib import Path
 import math
+from pathlib import Path
 import textwrap
 
-import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
+import matplotlib.pyplot as plt
 import pandas as pd
 
 
@@ -31,12 +43,18 @@ CLASS_TO_FOLDER = {
 
 
 def ensure_output_dir() -> Path:
+    """
+    Asegura la existencia del directorio donde se guardarán las imágenes de casos de estudio.
+    """
     out_dir = Path("memoria/imagenes/roi_case_studies")
     out_dir.mkdir(parents=True, exist_ok=True)
     return out_dir
 
 
 def add_name_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Enriquece el DataFrame mapeando los identificadores de clases numéricos a sus nombres correspondientes.
+    """
     df = df.copy()
     if "y_true_roi" in df.columns and "y_true_name" not in df.columns:
         df["y_true_name"] = df["y_true_roi"].map(CLASS_ID_TO_NAME)
@@ -54,6 +72,9 @@ def load_case_row(
     roi_id: str,
     add_model_method: bool = False,
 ) -> pd.Series:
+    """
+    Carga la fila de datos correspondiente a una ROI concreta para un modelo y método específicos.
+    """
     df = pd.read_csv(csv_path)
     df = add_name_columns(df)
 
@@ -75,6 +96,9 @@ def load_case_row(
 
 
 def find_roi_image(roi_id: str, y_true_name: str) -> Path:
+    """
+    Localiza la ruta al archivo de la imagen original de la ROI.
+    """
     roi_root = Path("data/histoimage/BRACS_RoI/latest_version/test")
     class_folder = CLASS_TO_FOLDER[y_true_name]
     roi_path = roi_root / class_folder / f"{roi_id}.png"
@@ -84,6 +108,9 @@ def find_roi_image(roi_id: str, y_true_name: str) -> Path:
 
 
 def find_patch_images(roi_id: str, y_true_name: str) -> list[Path]:
+    """
+    Localiza las rutas a todas las imágenes de los parches asociados con la ROI.
+    """
     patch_root = Path("data/histoimage/BRACS_RoI_patches_512_overlap_full/test")
     class_folder = CLASS_TO_FOLDER[y_true_name]
     patch_dir = patch_root / class_folder
@@ -94,6 +121,9 @@ def find_patch_images(roi_id: str, y_true_name: str) -> list[Path]:
 
 
 def format_prob_line(row: pd.Series) -> str:
+    """
+    Da formato a la línea de texto que describe las clases con mayor probabilidad.
+    """
     return (
         f"Top-1: {row['top1_name']} ({row['top1_prob']:.3f})   |   "
         f"Top-2: {row['top2_name']} ({row['top2_prob']:.3f})   |   "
@@ -102,6 +132,9 @@ def format_prob_line(row: pd.Series) -> str:
 
 
 def format_meta_line(row: pd.Series) -> str:
+    """
+    Da formato a la línea de texto que describe la metadata del caso actual.
+    """
     return (
         f"Clase real: {row['y_true_name']}   |   "
         f"n_patches: {int(row['n_patches'])}   |   "
@@ -111,6 +144,9 @@ def format_meta_line(row: pd.Series) -> str:
 
 
 def pretty_model_method(model: str, method: str) -> str:
+    """
+    Devuelve un nombre amigable del modelo y el método para mostrar en los gráficos.
+    """
     model_name = "H-Optimus1" if model == "h_optimus_1" else "Virchow2"
     method_name_map = {
         "baseline": "Baseline",
@@ -124,6 +160,9 @@ def pretty_model_method(model: str, method: str) -> str:
 
 
 def choose_patch_subset(patch_paths: list[Path], max_patches: int = 9) -> list[Path]:
+    """
+    Selecciona un subconjunto de parches distribuidos uniformemente de la lista de parches.
+    """
     if len(patch_paths) <= max_patches:
         return patch_paths
 
@@ -151,6 +190,9 @@ def draw_case_figure(
     output_path: Path,
     max_patches: int = 9,
 ) -> None:
+    """
+    Dibuja y guarda la figura compuesta para el caso de estudio.
+    """
     roi_id = row["roi_id"]
     y_true_name = row["y_true_name"]
     model = row["model"]
@@ -168,26 +210,26 @@ def draw_case_figure(
 
     fig = plt.figure(figsize=(15, 9))
 
-    # Reservamos más espacio arriba para que no haya solape
+    # Estructura del grid para organizar la ROI y los parches correspondientes
     gs = fig.add_gridspec(
         nrows=max(n_rows, 3),
         ncols=5,
         left=0.04,
         right=0.98,
         bottom=0.08,
-        top=0.74,   # <- clave: baja la zona de imágenes
+        top=0.74,   # Reservamos espacio para la metadata superior
         width_ratios=[2.2, 0.08, 1, 1, 1],
         hspace=0.28,
         wspace=0.18,
     )
 
-    # ROI original
+    # Dibujamos la ROI original a la izquierda
     ax_roi = fig.add_subplot(gs[:, 0])
     ax_roi.imshow(roi_img)
     ax_roi.set_title("ROI original", fontsize=13, weight="bold", pad=10)
     ax_roi.axis("off")
 
-    # Patches
+    # Dibujamos los parches individuales en una cuadrícula a la derecha
     for i in range(n_rows):
         for j in range(n_cols):
             idx = i * n_cols + j
@@ -198,7 +240,7 @@ def draw_case_figure(
             ax.set_title(f"Patch {idx+1}", fontsize=9, pad=4)
             ax.axis("off")
 
-    # Cabecera superior
+    # Configuramos el título y subtítulos de cabecera con la información diagnóstica
     title_line = pretty_model_method(model, method)
     fig.suptitle(
         f"{title_line}  |  ROI: {roi_id}",
@@ -250,6 +292,7 @@ def main() -> None:
     review_csv = Path("outputs/metrics/test_roi_abstention/summaries/all_review_cases_tau010.csv")
     decisions_base = Path("outputs/metrics/test_roi_abstention")
 
+    # Selección de casos diagnósticos específicos a visualizar
     selected_cases = [
         {
             "source": "review",
@@ -276,6 +319,7 @@ def main() -> None:
 
     out_dir = ensure_output_dir()
 
+    # Iteramos y dibujamos las figuras compuestas de cada caso
     for case in selected_cases:
         if case["source"] == "review":
             row = load_case_row(
@@ -292,7 +336,7 @@ def main() -> None:
                 model=case["model"],
                 method=case["method"],
                 roi_id=case["roi_id"],
-                add_model_method=True,   # <- clave: añade model/method al CSV
+                add_model_method=True,
             )
 
         out_path = out_dir / case["output_name"]

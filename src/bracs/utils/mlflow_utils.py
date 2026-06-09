@@ -1,6 +1,5 @@
 # ---------------------------------------------
-# Pequeña capa de utilidad sobre MLflow.
-
+# Capa de utilidad sobre MLflow.
 # El objetivo es que todos los scripts de entrenamiento usen SIEMPRE las mismas convenciones de:
 #    tracking_uri
 #    nombre de experimento

@@ -182,7 +182,7 @@ def validate_alignment(
 
 
 # =========================================================
-# REDUCCIÓN DE DIMENSIONALIDAD
+# REDUCCIÓN DE DIMENSIONALIDAD CON PCA
 # =========================================================
 def reduce_embeddings_with_pca(features: np.ndarray, n_components: int) -> Tuple[np.ndarray, PCA]:
     """
@@ -250,7 +250,7 @@ def compute_neighbors(
 
     neighbors = indices[:, 1:]
 
-    # Comprobació para asegurar que ningún punto aparece como vecino de sí mismo.
+    # Comprobación para asegurar que ningún punto aparece como vecino de sí mismo.
     self_idx = np.arange(n).reshape(-1, 1)
     if np.any(neighbors == self_idx):
         raise ValueError("Se ha detectado un punto que aparece como vecino de sí mismo.")
@@ -524,7 +524,7 @@ def save_cleaning_outputs(
     intermediate_dir.mkdir(parents=True, exist_ok=True)
 
     # -----------------------------------------
-    # 1) CSV completo de cleaning
+    # CSV completo de cleaning
     # -----------------------------------------
     cleaning_df = metadata_df.copy()
 
@@ -543,7 +543,7 @@ def save_cleaning_outputs(
     cleaning_df.to_csv(cleaning_csv_path, index=False)
 
     # -----------------------------------------
-    # 2) Dataset limpio en H5
+    # Dataset limpio en H5
     # -----------------------------------------
     clean_h5_path = cleaned_embeddings_dir / f"{model_name}_train_clean.h5"
     save_embeddings_h5(
@@ -554,20 +554,20 @@ def save_cleaning_outputs(
     )
 
     # -----------------------------------------
-    # 3) Metadata limpia
+    # Metadata limpia
     # -----------------------------------------
     clean_metadata_csv_path = cleaned_embeddings_dir / f"{model_name}_train_clean_metadata.csv"
     metadata_clean_df.to_csv(clean_metadata_csv_path, index=False)
 
     # -----------------------------------------
-    # 4) Summary JSON
+    # Summary JSON
     # -----------------------------------------
     summary_path = cleaning_dir / f"{model_name}_train_cleaning_summary.json"
     with open(summary_path, "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2, ensure_ascii=False)
 
     # -----------------------------------------
-    # 5) Vecinos opcionalmente
+    # Vecinos
     # -----------------------------------------
     if neighbors is not None:
         neighbors_path = intermediate_dir / f"{model_name}_train_neighbors.npy"
@@ -594,12 +594,12 @@ def main() -> None:
     print(f"[INFO] distance_metric: {args.distance_metric}")
 
     # -----------------------------------------
-    # 1) Carga de embeddings y metadata
+    # Carga de embeddings y metadata
     # -----------------------------------------
     features, labels, row_ids, metadata_df = load_embeddings_and_metadata(args.model)
 
     # -------------------------------------------------
-    # MODO TEST: muestreo aleatorio reproducible
+    # Muestreo aleatorio reproducible
     # -------------------------------------------------
     # Si max_samples no es None, en vez de coger las primeras N muestras,
     # cogemos N patches aleatorios del train, para que el subconjunto sea representativo y no solo de una misma clase
@@ -633,7 +633,7 @@ def main() -> None:
     metadata_df["row_id"] = row_ids
         
     # -----------------------------------------
-    # 2) Validación de alineación
+    # Validación de alineación
     # -----------------------------------------
     validate_alignment(features, labels, row_ids, metadata_df)
 
@@ -641,7 +641,7 @@ def main() -> None:
     print(f"[INFO] Dimensión original del embedding: {features.shape[1]}")
 
     # -----------------------------------------
-    # 3) Reducción de dimensionalidad con PCA
+    # Reducción de dimensionalidad con PCA
     # -----------------------------------------
     features_reduced, _pca = reduce_embeddings_with_pca(
         features=features,
@@ -651,7 +651,7 @@ def main() -> None:
     print(f"[INFO] Dimensión tras PCA: {features_reduced.shape[1]}")
 
     # -----------------------------------------
-    # 4) Cálculo de vecinos
+    # Cálculo de vecinos
     # -----------------------------------------
     neighbors = compute_neighbors(
         features_reduced=features_reduced,
@@ -660,7 +660,7 @@ def main() -> None:
     )
 
     # -----------------------------------------
-    # 5) Información mutua global
+    # Información mutua global
     # -----------------------------------------
     mi_full = estimate_mutual_information(
         features_reduced=features_reduced,
@@ -669,7 +669,7 @@ def main() -> None:
     print(f"[INFO] MI global del conjunto completo: {mi_full:.6f}")
 
     # -----------------------------------------
-    # 6) Cálculo leave-one-out
+    # Cálculo leave-one-out
     # -----------------------------------------
     mi_without_patch, delta_information = compute_leave_one_out_mi_scores(
         features_reduced=features_reduced,
@@ -678,7 +678,7 @@ def main() -> None:
     )
 
     # -----------------------------------------
-    # 7) Conteo de discrepancias locales
+    # Conteo de discrepancias locales
     # -----------------------------------------
     disagreement_counts = compute_neighbor_disagreement_counts(
         delta_information=delta_information,
@@ -687,7 +687,7 @@ def main() -> None:
     )
 
     # -----------------------------------------
-    # 8) Decisión keep/drop
+    # Decisión keep/drop
     # -----------------------------------------
     keep_mask = decide_keep_drop(
         disagreement_counts=disagreement_counts,
@@ -705,7 +705,7 @@ def main() -> None:
         )
 
     # -----------------------------------------
-    # 9) Construcción del dataset limpio
+    # Construcción del dataset limpio
     # -----------------------------------------
     features_clean, labels_clean, row_ids_clean, metadata_clean_df = build_clean_dataset(
         features=features,
@@ -716,7 +716,7 @@ def main() -> None:
     )
 
     # -----------------------------------------
-    # 10) Resumen
+    # Resumen
     # -----------------------------------------
     summary = build_cleaning_summary(
         labels_original=labels,
@@ -724,7 +724,7 @@ def main() -> None:
     )
 
     # -----------------------------------------
-    # 11) Guardado
+    # Guardado
     # -----------------------------------------
     save_cleaning_outputs(
         model_name=args.model,
@@ -744,7 +744,7 @@ def main() -> None:
     )
 
     # -----------------------------------------
-    # 12) Resumen final en consola
+    # Resumen final por terminal
     # -----------------------------------------
     pct_removed = 100.0 * n_removed / n_original if n_original > 0 else 0.0
 

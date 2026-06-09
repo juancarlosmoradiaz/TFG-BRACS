@@ -1,3 +1,21 @@
+# ---------------------------------------------
+# AGREGACIÓN DE PREDICCIONES DE PATCHES A NIVEL DE ROI
+# ---------------------------------------------
+# Objetivo:
+#   - Agrupar predicciones generadas a nivel de patch para cada región de interés (ROI)
+#   - Calcular predicciones agregadas mediante diferentes reglas de votación:
+#       * Promedio de probabilidades (mean_proba)
+#       * Voto por mayoría (majority_vote)
+#       * Criterio de mayor malignidad (most_malignant)
+#   - Extraer métricas adicionales como entropía y margen entre las clases top 1 y 2
+#
+# Entrada:
+#   - Archivo CSV con predicciones a nivel de patch
+#
+# Salida:
+#   - Archivo CSV con métricas agregadas por ROI
+# ---------------------------------------------
+
 from __future__ import annotations
 
 import argparse
@@ -7,17 +25,45 @@ import numpy as np
 import pandas as pd
 
 
+# =========================================================
+# ARGUMENTOS
+# =========================================================
 def parse_args() -> argparse.Namespace:
+    """
+    Parsea los argumentos de línea de comandos.
+    """
     parser = argparse.ArgumentParser(
         description="Agrega predicciones patch-level a nivel de ROI."
     )
-    parser.add_argument("--input_csv", type=str, required=True)
-    parser.add_argument("--output_csv", type=str, required=True)
-    parser.add_argument("--n_clases", type=int, default=7)
+    parser.add_argument(
+        "--input_csv",
+        type=str,
+        required=True,
+        help="Ruta al archivo CSV de entrada con predicciones a nivel de patch.",
+    )
+    parser.add_argument(
+        "--output_csv",
+        type=str,
+        required=True,
+        help="Ruta donde se guardará el archivo CSV resultante con las agregaciones de ROI.",
+    )
+    parser.add_argument(
+        "--n_clases",
+        type=int,
+        default=7,
+        help="Número de clases del problema de clasificación.",
+    )
     return parser.parse_args()
 
 
+# =========================================================
+# AUXILIARES / MÉTRICAS
+# =========================================================
 def majority_vote(arr: np.ndarray) -> int:
+    """
+    Calcula el voto por mayoría de un array de predicciones.
+    En caso de empate, se selecciona la clase con menor índice numérico.
+    """
     values, counts = np.unique(arr, return_counts=True)
     max_count = counts.max()
     winners = values[counts == max_count]
@@ -26,8 +72,8 @@ def majority_vote(arr: np.ndarray) -> int:
 
 def safe_entropy(probs: np.ndarray, eps: float = 1e-12) -> float:
     """
-    Calcula la entropía de un vector de probabilidades.
-    Se añade un epsilon para evitar log(0).
+    Calcula la entropía de Shannon de un vector de probabilidades.
+    Se añade un epsilon para evitar problemas de indeterminación matemática con log(0).
     """
     probs = np.asarray(probs, dtype=float)
     probs = np.clip(probs, eps, 1.0)
@@ -46,6 +92,7 @@ def top_k_from_probs(probs: np.ndarray, k: int = 3) -> list[tuple[int, float]]:
     return [(int(i), float(probs[i])) for i in top_idx]
 
 
+
 def main() -> None:
     args = parse_args()
 
@@ -56,6 +103,7 @@ def main() -> None:
     print(f"[INFO] Cargando CSV patch-level: {in_path}")
     df = pd.read_csv(in_path)
 
+    # Validamos las columnas requeridas
     required_cols = {"roi_id", "y_true_patch", "y_pred_patch"}
     prob_cols = [f"prob_{i}" for i in range(args.n_clases)]
     required_cols.update(prob_cols)
@@ -68,6 +116,7 @@ def main() -> None:
 
     roi_rows = []
 
+    # Agrupamos por identificador único de ROI para realizar la agregación
     grouped = df.groupby("roi_id", sort=True)
 
     for roi_id, g in grouped:
@@ -80,19 +129,22 @@ def main() -> None:
         y_true_roi = int(true_labels[0])
         n_patches = int(len(g))
 
+        # Regla 1: Promedio de probabilidades (mean_proba)
         probs = g[prob_cols].to_numpy(dtype=float)
         mean_probs = probs.mean(axis=0)
-
         y_pred_mean_proba = int(np.argmax(mean_probs))
 
+        # Regla 2: Voto por mayoría
         pred_patch = g["y_pred_patch"].to_numpy(dtype=int)
         y_pred_majority_vote = majority_vote(pred_patch)
+
+        # Regla 3: Mayor malignidad
         y_pred_most_malignant = int(pred_patch.max())
 
         # Top-3 clases más probables a nivel ROI
         top3 = top_k_from_probs(mean_probs, k=min(3, args.n_clases))
 
-        # Si hubiera menos de 3 clases por cualquier motivo, rellenamos
+        # Si hubiera menos de 3 clases por cualquier motivo, rellenamos con valores vacíos
         while len(top3) < 3:
             top3.append((-1, float("nan")))
 
@@ -103,6 +155,7 @@ def main() -> None:
         margin_top1_top2 = float(top1_prob - top2_prob)
         entropy = safe_entropy(mean_probs)
 
+        # Estructura del registro para la ROI actual
         row = {
             "roi_id": roi_id,
             "y_true_roi": y_true_roi,
@@ -120,6 +173,7 @@ def main() -> None:
             "entropy": entropy,
         }
 
+        # Guardamos las probabilidades promedio para cada una de las clases
         for i in range(args.n_clases):
             row[f"mean_prob_{i}"] = float(mean_probs[i])
 
@@ -147,6 +201,7 @@ def main() -> None:
 
     out_df = out_df[ordered_cols]
 
+    # Guardamos los resultados agregados
     out_df.to_csv(out_path, index=False)
 
     print("[INFO] Agregación ROI completada correctamente.")

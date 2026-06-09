@@ -1,3 +1,15 @@
+# ---------------------------------------------
+# EVALUACIÓN DE PREDICCIONES DE ROI CON ABSTENCIÓN
+# ---------------------------------------------
+# Entrada:
+#   - Archivo CSV con las predicciones a nivel de ROI
+#
+# Salida:
+#   - Archivo JSON con las métricas del experimento con abstención (coverage, review_rate, etc.)
+#   - Archivos CSV e imagen PNG con la matriz de confusión sobre los casos aceptados
+#   - Archivos CSV con casos para revisión e informe de pares dudosas
+# ---------------------------------------------
+
 from __future__ import annotations
 
 import argparse
@@ -12,18 +24,42 @@ from sklearn.metrics import accuracy_score, classification_report, confusion_mat
 CLASS_NAMES_7 = ["N", "PB", "UDH", "FEA", "ADH", "DCIS", "IC"]
 
 
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Evalúa predicciones ROI con abstención por margen top1-top2."
     )
-    parser.add_argument("--input_csv", type=str, required=True)
-    parser.add_argument("--tau", type=float, required=True)
-    parser.add_argument("--output_dir", type=str, required=True)
-    parser.add_argument("--n_clases", type=int, default=7)
+    parser.add_argument(
+        "--input_csv",
+        type=str,
+        required=True,
+        help="Ruta al archivo CSV con las predicciones de ROI.",
+    )
+    parser.add_argument(
+        "--tau",
+        type=float,
+        required=True,
+        help="Umbral de tolerancia (tau) para la abstención de predicciones dudosas.",
+    )
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        required=True,
+        help="Directorio de salida donde se guardarán las métricas y gráficos.",
+    )
+    parser.add_argument(
+        "--n_clases",
+        type=int,
+        default=7,
+        help="Número de clases del problema.",
+    )
     return parser.parse_args()
 
 
 def tau_to_tag(tau: float) -> str:
+    """
+    Genera un tag en formato de texto a partir del valor numérico de tau (ej. 0.10 -> tau010).
+    """
     return f"tau{int(round(tau * 100)):03d}"
 
 
@@ -34,6 +70,9 @@ def plot_confusion_matrix_with_percentages(
     title: str,
     output_path: Path,
 ) -> None:
+    """
+    Genera un gráfico PNG con la matriz de confusión porcentual y conteos absolutos.
+    """
     import matplotlib.pyplot as plt
 
     fig, ax = plt.subplots(figsize=(9, 7))
@@ -59,7 +98,8 @@ def plot_confusion_matrix_with_percentages(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(output_path, dpi=300, bbox_inches="tight")
     plt.close()
-    
+
+
 def main() -> None:
     args = parse_args()
 
@@ -69,6 +109,7 @@ def main() -> None:
 
     df = pd.read_csv(input_path)
 
+    # Validamos las columnas requeridas
     required_cols = {
         "roi_id",
         "y_true_roi",
@@ -90,7 +131,7 @@ def main() -> None:
     stem = input_path.stem.replace("_roi_predictions", "")
     class_names = CLASS_NAMES_7 if args.n_clases == 7 else [str(i) for i in range(args.n_clases)]
 
-    # Regla de abstención
+    # Aplicamos la regla de abstención en base al margen de probabilidad top1-top2
     df = df.copy()
     df["is_uncertain"] = df["margin_top1_top2"] < args.tau
     df["decision_with_abstention"] = np.where(
@@ -101,6 +142,7 @@ def main() -> None:
 
     df["accepted"] = ~df["is_uncertain"]
 
+    # Separamos en casos aceptados por el sistema y casos enviados a revisión
     accepted_df = df[df["accepted"]].copy()
     review_df = df[df["is_uncertain"]].copy()
 
@@ -123,6 +165,7 @@ def main() -> None:
 
     labels = list(range(args.n_clases))
 
+    # Si hay casos aceptados, calculamos su rendimiento de clasificación
     if n_accepted > 0:
         y_true = accepted_df["y_true_roi"].to_numpy(dtype=int)
         y_pred = accepted_df["top1_class"].to_numpy(dtype=int)
@@ -171,7 +214,7 @@ def main() -> None:
         metrics["f1_macro_accepted"] = None
         metrics["report_accepted"] = None
 
-    # Distribución de review por clase real
+    # Distribución de casos en revisión por clase real y combinaciones top1-top2
     if n_review > 0:
         review_true_counts = (
             review_df["y_true_roi"].value_counts().sort_index().to_dict()
@@ -188,7 +231,7 @@ def main() -> None:
 
     metrics["review_true_class_counts"] = {str(k): int(v) for k, v in review_true_counts.items()}
 
-    # Guardados
+    # Rutas de guardado de los ficheros resultantes
     metrics_path = output_dir / f"{stem}_{tau_tag}_metrics.json"
     review_cases_path = output_dir / f"{stem}_{tau_tag}_review_cases.csv"
     review_pairs_path = output_dir / f"{stem}_{tau_tag}_review_pairs_summary.csv"
@@ -249,6 +292,7 @@ def main() -> None:
         print(f"[INFO] CM abs accepted CSV: {cm_abs_path}")
         print(f"[INFO] CM pct accepted CSV: {cm_pct_path}")
         print(f"[INFO] CM accepted PNG: {cm_png_path}")
+
 
 if __name__ == "__main__":
     main()

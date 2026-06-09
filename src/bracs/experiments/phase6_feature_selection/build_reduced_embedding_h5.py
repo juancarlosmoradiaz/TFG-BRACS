@@ -1,3 +1,14 @@
+# ---------------------------------------------
+# CONSTRUCCIÓN DE H5 DE EMBEDDINGS REDUCIDOS
+# ---------------------------------------------
+# Entrada:
+#   - Archivo H5 original de embeddings (features, labels, row_ids)
+#   - Archivo NumPy (.npy) con los índices de variables preseleccionadas
+#
+# Salida:
+#   - Archivo H5 con los embeddings reducidos (filtrando por las columnas indicadas)
+# ---------------------------------------------
+
 from __future__ import annotations
 
 import argparse
@@ -30,6 +41,7 @@ def main() -> None:
     if not selected_idx_npy.exists():
         raise FileNotFoundError(f"No existe selected_idx_npy: {selected_idx_npy}")
 
+    # Cargamos y limpiamos los índices de variables seleccionadas
     selected_idx = np.load(selected_idx_npy).astype(int)
     selected_idx = np.unique(selected_idx)
 
@@ -42,13 +54,16 @@ def main() -> None:
     print(f"[INFO] Shape original features: {features.shape}")
     print(f"[INFO] Nº variables seleccionadas: {len(selected_idx)}")
 
+    # Validamos que los índices se correspondan con la dimensión del embedding
     if selected_idx.min() < 0 or selected_idx.max() >= features.shape[1]:
         raise ValueError("Los índices seleccionados están fuera de rango.")
 
+    # Filtramos la matriz de características conservando solo las columnas seleccionadas
     reduced_features = features[:, selected_idx]
 
     print(f"[INFO] Shape reducida features: {reduced_features.shape}")
 
+    # Guardamos los resultados comprimidos en formato H5
     with h5py.File(output_h5, "w") as f:
         f.create_dataset("features", data=reduced_features, compression="gzip")
         f.create_dataset("labels", data=labels, compression="gzip")

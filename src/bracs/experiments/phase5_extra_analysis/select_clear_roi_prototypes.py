@@ -1,3 +1,15 @@
+# ---------------------------------------------
+# SELECCIÓN DE PROTOTIPOS CLAROS DE ROI
+# ---------------------------------------------
+# Entrada:
+#   - Archivo CSV con las predicciones de las ROIs
+#   - Archivo CSV con los casos en revisión (para excluirlos)
+#
+# Salida:
+#   - Archivo CSV con las ROIs seleccionadas como prototipos claros
+#   - Archivo CSV con el resumen de la selección (cantidades de estrictos/relajados por clase)
+# ---------------------------------------------
+
 from __future__ import annotations
 
 import argparse
@@ -46,6 +58,10 @@ def base_filter(
     min_margin: float,
     min_patches: int,
 ) -> pd.DataFrame:
+    """
+    Aplica filtros base para asegurar que una ROI sea candidata a prototipo.
+    Verifica acierto del clasificador, exclusión de casos dudosos y cumplimiento de umbrales.
+    """
     out = df.copy()
     out = out[out["y_pred_mean_proba"] == out["y_true_roi"]]
     out = out[~out["roi_id"].astype(str).isin(review_roi_ids)]
@@ -71,13 +87,13 @@ def main() -> None:
 
     review_roi_ids = set(review_df["roi_id"].astype(str).tolist())
 
-    # Añadimos metadata útil
+    # Agregamos metadatos informativos a los registros
     roi_df = roi_df.copy()
     roi_df["class_name"] = roi_df["y_true_roi"].map(CLASS_NAMES)
     roi_df["model"] = args.model
     roi_df["method"] = args.method
 
-    # Selección estricta
+    # 1. Filtro estricto: Alta probabilidad e inequivocidad
     strict_df = base_filter(
         roi_df,
         review_roi_ids=review_roi_ids,
@@ -87,7 +103,7 @@ def main() -> None:
     ).copy()
     strict_df["selection_level"] = "strict"
 
-    # Selección relajada candidata
+    # 2. Filtro relajado: Umbral de probabilidad menor si no hay suficientes estrictos
     relaxed_candidates_df = base_filter(
         roi_df,
         review_roi_ids=review_roi_ids,
@@ -96,7 +112,7 @@ def main() -> None:
         min_patches=args.min_patches,
     ).copy()
 
-    # Orden común: primero mayor top1_prob, luego mayor margen
+    # Ordenamos priorizando mayor probabilidad y luego mayor margen
     sort_cols = ["y_true_roi", "top1_prob", "margin_top1_top2"]
     strict_df = strict_df.sort_values(by=sort_cols, ascending=[True, False, False])
     relaxed_candidates_df = relaxed_candidates_df.sort_values(
@@ -106,15 +122,17 @@ def main() -> None:
     selected_parts = []
     summary_rows = []
 
+    # Aplicamos la selección jerárquica por clase diagnóstica
     for class_id, class_name in CLASS_NAMES.items():
         strict_cls = strict_df[strict_df["y_true_roi"] == class_id].copy()
 
-        # Empezamos con los estrictos
+        # Comenzamos incorporando los que cumplen el filtro estricto
         selected_cls = strict_cls.copy()
 
         n_strict = len(strict_cls)
         n_added_relaxed = 0
 
+        # Si no se llega al mínimo deseado, rellenamos con casos del filtro relajado
         if n_strict < args.min_per_class:
             needed = args.min_per_class - n_strict
 
@@ -139,9 +157,10 @@ def main() -> None:
             "n_final": len(selected_cls),
         })
 
+    # Consolidamos todas las selecciones
     final_df = pd.concat(selected_parts, ignore_index=True)
 
-    # Orden final
+    # Ordenación final de los prototipos
     final_df = final_df.sort_values(
         by=["y_true_roi", "selection_level", "top1_prob", "margin_top1_top2"],
         ascending=[True, True, False, False],
@@ -165,6 +184,7 @@ def main() -> None:
     ]
     final_df = final_df[cols_to_keep]
 
+    # Guardado de ficheros de resultados
     final_df.to_csv(out_path, index=False)
 
     summary_df = pd.DataFrame(summary_rows)

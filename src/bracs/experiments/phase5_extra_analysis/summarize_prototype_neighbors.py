@@ -1,3 +1,18 @@
+# ---------------------------------------------
+# RESUMEN DE VECINOS PROTOTÍPICOS
+# ---------------------------------------------
+# Entrada:
+#   - Archivo CSV con los prototipos más cercanos para las ROIs dudosas (salida de find_nearest_clear_prototypes.py)
+#
+# Salida:
+#   - Archivos CSV resumen de vecinos en la carpeta de destino:
+#       * global_summary.csv: Totales globales de coincidencia de vecinos con clase real/top-2
+#       * summary_by_true_class.csv: Agrupación y porcentajes por clase real
+#       * nearest_pair_counts.csv: Frecuencias de parejas (clase real -> clase prototipo)
+#       * nearest_matches_top2_cases.csv: Listado de casos que coinciden con la clase top-2
+#       * nearest_matches_true_cases.csv: Listado de casos que coinciden con la clase real
+# ---------------------------------------------
+
 from __future__ import annotations
 
 import argparse
@@ -35,6 +50,7 @@ def main() -> None:
 
     df = pd.read_csv(in_path)
 
+    # Nos quedamos con el prototipo más cercano (inmediato superior rank 1)
     rank1 = df[df["prototype_rank"] == 1].copy()
 
     rank1["y_true_name"] = rank1["y_true_dudosa"].map(CLASS_NAMES)
@@ -44,7 +60,7 @@ def main() -> None:
     rank1["nearest_is_true_class"] = rank1["prototype_class"] == rank1["y_true_dudosa"]
     rank1["nearest_is_top2_class"] = rank1["prototype_class"] == rank1["top2_class_dudosa"]
 
-    # Resumen global
+    # Resumen global del comportamiento de los vecinos
     global_summary = pd.DataFrame([{
         "n_rois_dudosas": int(rank1["roi_id_dudosa"].nunique()),
         "pct_nearest_is_true_class": 100.0 * rank1["nearest_is_true_class"].mean(),
@@ -52,7 +68,7 @@ def main() -> None:
     }])
     global_summary.to_csv(out_dir / "global_summary.csv", index=False)
 
-    # Por clase real
+    # Resumen desglosado por clase real
     by_true = (
         rank1.groupby(["y_true_dudosa", "y_true_name"])
         .agg(
@@ -66,7 +82,7 @@ def main() -> None:
     )
     by_true.to_csv(out_dir / "summary_by_true_class.csv", index=False)
 
-    # Pares clase real -> clase del prototipo más cercano
+    # Conteo de frecuencia de emparejamientos clase real -> clase del prototipo
     pair_counts = (
         rank1.groupby(["y_true_name", "prototype_class_name"])
         .size()
@@ -75,11 +91,10 @@ def main() -> None:
     )
     pair_counts.to_csv(out_dir / "nearest_pair_counts.csv", index=False)
 
-    # Casos en los que el prototipo más cercano coincide con top2
+    # Exportamos listados específicos de casos de interés (acierto vs falsas alarmas)
     top2_cases = rank1[rank1["nearest_is_top2_class"]].copy()
     top2_cases.to_csv(out_dir / "nearest_matches_top2_cases.csv", index=False)
 
-    # Casos en los que coincide con la clase real
     true_cases = rank1[rank1["nearest_is_true_class"]].copy()
     true_cases.to_csv(out_dir / "nearest_matches_true_cases.csv", index=False)
 

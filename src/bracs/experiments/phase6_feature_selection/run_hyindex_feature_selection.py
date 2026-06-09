@@ -1,3 +1,15 @@
+# ---------------------------------------------
+# SELECCIÓN DE VARIABLES CON HY-INDEX
+# ---------------------------------------------
+# Entrada:
+#   - Archivo H5 de embeddings de train
+#   - Ruta al repositorio del algoritmo Hy-index
+#
+# Salida:
+#   - Archivos NumPy (.npy) con los índices y la máscara de variables seleccionadas
+#   - Archivo JSON de resumen del experimento de selección
+# ---------------------------------------------
+
 from __future__ import annotations
 
 import argparse
@@ -20,7 +32,7 @@ def load_hyindex_function(hyindex_repo: Path):
     if not hyindex_repo.exists():
         raise FileNotFoundError(f"No existe el repositorio Hy-index: {hyindex_repo}")
 
-    # Muy importante: meter el repo al principio del sys.path
+    # Introducimos el repo al principio del sys.path para importaciones relativas
     repo_str = str(hyindex_repo)
     if repo_str not in sys.path:
         sys.path.insert(0, repo_str)
@@ -66,6 +78,7 @@ def main() -> None:
     print(f"[INFO] Shape X_train: {X.shape}")
     print(f"[INFO] Shape y_train: {y.shape}")
 
+    # Submuestreo aleatorio opcional para acelerar la computación
     if args.max_samples is not None:
         rng = np.random.default_rng(args.random_state)
         n_total = X.shape[0]
@@ -89,6 +102,7 @@ def main() -> None:
         f"threshold={args.threshold}, k={args.k}, random_state={args.random_state}"
     )
 
+    # Invocamos la función del repo externo Hy-index
     result = get_hy_index_from_data(
         X,
         y,
@@ -121,17 +135,17 @@ def main() -> None:
     print(f"[INFO] Variables seleccionadas: {n_selected}")
     print(f"[INFO] Porcentaje retenido: {pct_selected:.2f}%")
 
-    # Guardamos índices seleccionados
+    # Guardamos los índices numéricos de las variables seleccionadas
     selected_idx_path = output_dir / f"{args.model}_hyindex_selected_idx_thr{str(args.threshold).replace('.', '')}.npy"
     np.save(selected_idx_path, selected_idx)
 
-    # Guardamos máscara booleana por comodidad
+    # Guardamos también una máscara booleana
     mask = np.zeros(n_total, dtype=bool)
     mask[selected_idx] = True
     mask_path = output_dir / f"{args.model}_hyindex_selected_mask_thr{str(args.threshold).replace('.', '')}.npy"
     np.save(mask_path, mask)
 
-    # Guardamos resumen JSON
+    # Generamos el informe JSON resumen del proceso
     summary = {
         "model": args.model,
         "train_h5": str(train_h5),
@@ -147,7 +161,6 @@ def main() -> None:
         "max_samples": None if args.max_samples is None else int(args.max_samples),
     }
 
-    # Si viene hy_index en el dict, lo guardamos
     if "hy_index" in result:
         try:
             summary["hy_index"] = float(result["hy_index"])

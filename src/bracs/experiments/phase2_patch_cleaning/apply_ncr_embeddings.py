@@ -1,10 +1,10 @@
 """
 Aplica NeighbourhoodCleaningRule (NCR) sobre los embeddings de train de un
 modelo fundacional:
-    1. Carga embeddings, etiquetas y row_ids desde el H5 del split train.
-    2. Carga la metadata asociada.
-    3. Aplica NeighbourhoodCleaningRule sobre (X, y).
-    4. Guarda:
+    - Carga embeddings, etiquetas y row_ids desde el H5 del split train.
+    - Carga la metadata asociada.
+    - Aplica NeighbourhoodCleaningRule sobre (X, y).
+    - Guarda:
         - embeddings filtrados en formato H5,
         - metadata filtrada,
         - trazabilidad completa keep/drop,

@@ -1,8 +1,6 @@
 """
 Aplica un RandomUnderSampler sobre los embeddings de train de un
-modelo fundacional, manteniendo el 70% de las muestras de cada
-clase:
-
+modelo fundacional:
     - Carga embeddings y metadata del split train.
     - Construye el vector de etiquetas.
     - Aplica RandomUnderSampler con un sampling_strategy fijo por clase.
@@ -28,7 +26,7 @@ from imblearn.under_sampling import RandomUnderSampler
 
 
 # -------------------------------------------------------------------------
-# Configuración fija del undersampling estratificado para mantener el 70% de cada clase.
+# Configuración fija del undersampling para mantener el 70% de cada clase.
 # -------------------------------------------------------------------------
 SAMPLING_STRATEGY_70 = {
     0: 2665,
@@ -112,16 +110,6 @@ def load_h5_data(h5_path: Path) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Carga embeddings, etiquetas y row_ids desde un fichero H5.
 
-    Este proyecto guarda los datos dentro del H5 con los nombres:
-    - 'features': matriz de embeddings
-    - 'labels': vector de etiquetas
-    - 'row_ids': identificadores internos
-
-    Parameters
-    ----------
-    h5_path : Path
-        Ruta al fichero H5.
-
     Returns
     -------
     tuple[np.ndarray, np.ndarray, np.ndarray]
@@ -145,7 +133,7 @@ def load_h5_data(h5_path: Path) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
 
 def infer_label_column(metadata: pd.DataFrame) -> str:
     """
-    Intenta inferir el nombre de la columna de clase dentro del CSV de metadata.
+    Saca el nombre de la columna de clase dentro del CSV de metadata.
 
     Parameters
     ----------
@@ -156,11 +144,6 @@ def infer_label_column(metadata: pd.DataFrame) -> str:
     -------
     str
         Nombre de la columna que contiene las etiquetas.
-
-    Raises
-    ------
-    ValueError
-        Si no se encuentra una columna de etiquetas reconocible.
     """
 
     candidates = [
@@ -217,17 +200,6 @@ def build_trace_dataframe(
     Construye un CSV de trazabilidad patch a patch, marcando si cada muestra
     ha sido conservada o eliminada por el método aplicado.
 
-    Parameters
-    ----------
-    metadata : pd.DataFrame
-        Metadata original completa.
-    y_original : np.ndarray
-        Etiquetas originales.
-    selected_indices : np.ndarray
-        Índices de las muestras conservadas por el undersampler.
-    method_name : str
-        Nombre del método aplicado.
-
     Returns
     -------
     pd.DataFrame
@@ -261,22 +233,14 @@ def save_resampled_h5(
     - 'features'
     - 'labels'
     - 'row_ids'
-
-    Parameters
-    ----------
-    h5_path : Path
-        Ruta de salida.
-    features : np.ndarray
-        Matriz de embeddings conservados.
-    labels : np.ndarray
-        Etiquetas conservadas.
-    row_ids : np.ndarray
-        Identificadores internos conservados.
     """
     with h5py.File(h5_path, "w") as f:
         f.create_dataset("features", data=features)
         f.create_dataset("labels", data=labels)
         f.create_dataset("row_ids", data=row_ids)
+
+
+        
 def main() -> None:
     args = parse_args()
 

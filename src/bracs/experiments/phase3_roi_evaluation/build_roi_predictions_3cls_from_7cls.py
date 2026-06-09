@@ -1,3 +1,13 @@
+# ---------------------------------------------
+# CONSTRUCCIÓN DE PREDICCIONES ROI DE 3 CLASES A PARTIR DE 7 CLASES
+# ---------------------------------------------
+# Entrada:
+#   - Archivo CSV con predicciones de ROI en 7 clases
+#
+# Salida:
+#   - Archivo CSV con predicciones mapeadas a 3 clases diagnósticas
+# ---------------------------------------------
+
 from __future__ import annotations
 
 import argparse
@@ -7,10 +17,9 @@ import numpy as np
 import pandas as pd
 
 
-# Mapeo desde data_roi_3cls_full.pkl
-# AT (0) <- FEA(3), ADH(4)
-# BT (1) <- N(0), PB(1), UDH(2)
-# MT (2) <- DCIS(5), IC(6)
+# =========================================================
+# MAPEO Y CONFIGURACIÓN DE CLASES
+# =========================================================
 
 THREE_CLASS_NAMES = {
     0: "AT",
@@ -29,15 +38,42 @@ SEVEN_TO_THREE = {
 }
 
 
+# =========================================================
+# ARGUMENTOS
+# =========================================================
 def parse_args() -> argparse.Namespace:
+    """
+    Parsea los argumentos de línea de comandos.
+    """
     parser = argparse.ArgumentParser(
         description="Construye predicciones ROI en 3 clases a partir de probabilidades ROI en 7 clases."
     )
-    parser.add_argument("--input_csv", type=str, required=True)
-    parser.add_argument("--output_csv", type=str, required=True)
-    parser.add_argument("--model", type=str, required=True)
-    parser.add_argument("--method", type=str, required=True)
+    parser.add_argument(
+        "--input_csv",
+        type=str,
+        required=True,
+        help="Ruta al archivo CSV de entrada con predicciones de ROI en 7 clases.",
+    )
+    parser.add_argument(
+        "--output_csv",
+        type=str,
+        required=True,
+        help="Ruta donde se guardará el CSV con las predicciones mapeadas a 3 clases.",
+    )
+    parser.add_argument(
+        "--model",
+        type=str,
+        required=True,
+        help="Nombre del modelo (ej. virchow2, h_optimus_1).",
+    )
+    parser.add_argument(
+        "--method",
+        type=str,
+        required=True,
+        help="Nombre del método de agregación o configuración utilizado.",
+    )
     return parser.parse_args()
+
 
 
 def main() -> None:
@@ -50,6 +86,7 @@ def main() -> None:
     print(f"[INFO] Cargando CSV ROI 7-clases: {in_path}")
     df = pd.read_csv(in_path)
 
+    # Validamos las columnas requeridas
     required_cols = {
         "roi_id",
         "y_true_roi",
@@ -68,22 +105,25 @@ def main() -> None:
 
     out_rows = []
 
+    # Recorremos cada registro de ROI para realizar la suma y mapeo de clases
     for _, row in df.iterrows():
         y_true_7 = int(row["y_true_roi"])
         y_true_3 = SEVEN_TO_THREE[y_true_7]
 
+        # Agregamos las probabilidades según el mapeo de 7 a 3 clases
         prob_AT = float(row["mean_prob_3"] + row["mean_prob_4"])
         prob_BT = float(row["mean_prob_0"] + row["mean_prob_1"] + row["mean_prob_2"])
         prob_MT = float(row["mean_prob_5"] + row["mean_prob_6"])
 
         probs_3 = np.array([prob_AT, prob_BT, prob_MT], dtype=float)
 
-        # pequeña comprobación numérica
+        # Pequeña comprobación numérica para validar consistencia de probabilidades
         if not np.isclose(probs_3.sum(), 1.0, atol=1e-6):
             raise ValueError(
                 f"Las probabilidades 3-clases no suman 1 en ROI {row['roi_id']}: {probs_3.sum()}"
             )
 
+        # Obtenemos el top-1 y top-2 en base a las probabilidades de 3 clases
         order = np.argsort(probs_3)[::-1]
         top1 = int(order[0])
         top2 = int(order[1])
@@ -110,6 +150,7 @@ def main() -> None:
             "margin_top1_top2_3cls": float(probs_3[top1] - probs_3[top2]),
         })
 
+    # Guardamos el DataFrame con el formato final en el CSV de salida
     out_df = pd.DataFrame(out_rows)
     out_df.to_csv(out_path, index=False)
 

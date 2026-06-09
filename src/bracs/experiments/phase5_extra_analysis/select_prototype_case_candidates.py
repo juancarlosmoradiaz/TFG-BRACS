@@ -1,3 +1,16 @@
+# ---------------------------------------------
+# SELECCIÓN DE CANDIDATOS PARA CASOS DE ESTUDIO PROTOTÍPICOS
+# ---------------------------------------------
+# Entrada:
+#   - Archivo CSV con prototipos más cercanos para las ROIs dudosas (salida de find_nearest_clear_prototypes.py)
+#
+# Salida:
+#   - Archivos CSV con casos seleccionados para análisis cualitativo y visual:
+#       * Casos donde el prototipo más cercano coincide con la clase real (anchored_true)
+#       * Casos donde el prototipo más cercano coincide con la clase top-2 (anchored_top2)
+#       * Casos entre parejas conflictivas concretas (ej. ADH -> FEA, ADH -> DCIS)
+# ---------------------------------------------
+
 from __future__ import annotations
 
 import argparse
@@ -28,6 +41,9 @@ def parse_args() -> argparse.Namespace:
 
 
 def save_group(df: pd.DataFrame, path: Path, title: str, top_k: int) -> None:
+    """
+    Guarda y muestra en consola un subconjunto de candidatos preseleccionados.
+    """
     out = df.head(top_k).copy()
     out.to_csv(path, index=False)
     print(f"\n=== {title} ===")
@@ -46,6 +62,7 @@ def main() -> None:
 
     df = pd.read_csv(in_path)
 
+    # Nos quedamos con el prototipo número 1 (el más cercano/vecino inmediato)
     rank1 = df[df["prototype_rank"] == 1].copy()
 
     rank1["y_true_name"] = rank1["y_true_dudosa"].map(CLASS_NAMES)
@@ -55,22 +72,22 @@ def main() -> None:
     rank1["nearest_is_true_class"] = rank1["prototype_class"] == rank1["y_true_dudosa"]
     rank1["nearest_is_top2_class"] = rank1["prototype_class"] == rank1["top2_class_dudosa"]
 
-    # Ordenaremos por:
-    # 1) menor margen => más duda
-    # 2) mayor similitud => más convincente el vecino
-    # 3) mayor top2_prob => más fuerte la competencia
+    # Ordenamos priorizando:
+    # 1) menor margen (mayor incertidumbre)
+    # 2) mayor similitud coseno (vecino más representativo)
+    # 3) mayor probabilidad de la clase top-2 (mayor fuerza en la competencia)
     sort_cols = ["margin_top1_top2_dudosa", "cosine_similarity", "top2_prob_dudosa"]
     ascending = [True, False, False]
 
-    # Casos anclados en su propia clase
+    # Casos donde el vecino prototípico coincide con la clase diagnóstica correcta
     anchored_true = rank1[rank1["nearest_is_true_class"]].copy()
     anchored_true = anchored_true.sort_values(by=sort_cols, ascending=ascending)
 
-    # Casos anclados en la clase top2
+    # Casos donde el vecino prototípico apoya a la clase top-2 (falsa alarma del clasificador)
     anchored_top2 = rank1[rank1["nearest_is_top2_class"]].copy()
     anchored_top2 = anchored_top2.sort_values(by=sort_cols, ascending=ascending)
 
-    # Pares conflictivos concretos
+    # Parejas conflictivas específicas de transición
     interesting_pairs = [
         ("ADH", "FEA"),
         ("ADH", "DCIS"),
@@ -88,7 +105,7 @@ def main() -> None:
         sub = sub.sort_values(by=sort_cols, ascending=ascending)
         pair_frames.append((true_name, proto_name, sub))
 
-    # Guardados
+    # Columnas seleccionadas para el reporte y guardado
     cols_show = [
         "roi_id_dudosa",
         "y_true_name",
@@ -111,6 +128,7 @@ def main() -> None:
     anchored_true = anchored_true[cols_show]
     anchored_top2 = anchored_top2[cols_show]
 
+    # Guardamos cada grupo y mostramos el resultado
     save_group(
         anchored_true,
         out_dir / "candidates_anchored_true.csv",
