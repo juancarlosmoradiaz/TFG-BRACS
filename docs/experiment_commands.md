@@ -14,7 +14,7 @@ source .venv/bin/activate
 To inspect MLflow runs locally on the server:
 
 ```bash
-mlflow ui --backend-store-uri ./outputs/runs/mlruns --host 0.0.0.0 --port 5000
+mlflow ui --backend-store-uri ./outputs/mlruns --host 0.0.0.0 --port 5000
 ```
 
 Then create an SSH tunnel from the local machine:

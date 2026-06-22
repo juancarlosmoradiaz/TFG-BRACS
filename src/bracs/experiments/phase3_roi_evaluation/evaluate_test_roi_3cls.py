@@ -22,7 +22,7 @@ from sklearn.metrics import accuracy_score, classification_report, confusion_mat
 
 
 
-CLASS_NAMES = ["AT", "BT", "MT"]
+CLASS_NAMES = ["BT", "AT", "MT"]
 
 
 # =========================================================
@@ -140,13 +140,13 @@ def main() -> None:
     report = classification_report(
         y_true,
         y_pred,
-        labels=[0, 1, 2],
+        labels=[1, 0, 2],
         target_names=CLASS_NAMES,
         output_dict=True,
     )
 
     # Cálculo de las matrices de confusión (conteos absolutos y porcentajes normalizados)
-    cm_counts = confusion_matrix(y_true, y_pred, labels=[0, 1, 2])
+    cm_counts = confusion_matrix(y_true, y_pred, labels=[1, 0, 2])
     cm_pct = cm_counts.astype(float) / cm_counts.sum(axis=1, keepdims=True) * 100.0
 
     # Diccionario de métricas finales

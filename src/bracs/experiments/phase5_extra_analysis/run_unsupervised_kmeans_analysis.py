@@ -150,8 +150,10 @@ def plot_heatmap(cluster_vs_class_pct: pd.DataFrame, k: int, model_name: str, sa
     """
     Genera un mapa de calor que cruza la clase real y el cluster asignado.
     """
+    values = cluster_vs_class_pct.to_numpy()
+
     fig, ax = plt.subplots(figsize=(8, 5.5))
-    im = ax.imshow(cluster_vs_class_pct.to_numpy(), aspect="auto")
+    im = ax.imshow(values, aspect="auto", cmap="viridis")
 
     ax.set_xticks(np.arange(cluster_vs_class_pct.shape[1]))
     ax.set_yticks(np.arange(cluster_vs_class_pct.shape[0]))
@@ -161,12 +163,17 @@ def plot_heatmap(cluster_vs_class_pct: pd.DataFrame, k: int, model_name: str, sa
     ax.set_ylabel("Cluster")
     ax.set_title(f"Distribución porcentual clase real vs cluster (k={k}) - {model_name}")
 
+    thresh = values.max() / 2.0 if values.max() > 0 else 0.5
+
     for i in range(cluster_vs_class_pct.shape[0]):
         for j in range(cluster_vs_class_pct.shape[1]):
             val = cluster_vs_class_pct.iloc[i, j]
-            ax.text(j, i, f"{val:.1f}", ha="center", va="center", fontsize=8)
+            color = "black" if val > thresh else "white"
+            ax.text(j, i, f"{val:.1f}", ha="center", va="center", fontsize=8, color=color)
 
-    fig.colorbar(im, ax=ax)
+    cbar = fig.colorbar(im, ax=ax)
+    cbar.ax.set_ylabel("% dentro del cluster", rotation=90)
+
     plt.tight_layout()
     plt.savefig(save_path, dpi=300, bbox_inches="tight")
     plt.close()
