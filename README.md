@@ -1,4 +1,4 @@
-# Evaluación de alternativas de técnicas de preprocesamiento con Deep Learning para clasificación de imágenes histológicas en cáncer de mama
+# Evaluación de técnicas de preprocesamiento con Deep Learning para clasificación de imágenes histológicas en cáncer de mama
 
 ![Banner del proyecto](docs/images/bracs_banner.png)
 
